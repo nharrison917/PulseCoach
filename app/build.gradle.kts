@@ -94,4 +94,9 @@ dependencies {
     // ── Vico Charts ───────────────────────────────────────────────────────────
     // Compose-native charting library for the live HR graph (Phase 1).
     implementation("com.patrykandpatrick.vico:compose-m3:2.0.0-beta.3")
+
+    // ── Unit Tests ────────────────────────────────────────────────────────────
+    // JUnit 4 for JVM unit tests (src/test/). These run on the host machine,
+    // not on a device — so they're fast and suitable for pure-function testing.
+    testImplementation("junit:junit:4.13.2")
 }

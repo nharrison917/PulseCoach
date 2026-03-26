@@ -20,10 +20,13 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -43,11 +46,13 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -59,19 +64,17 @@ import com.pulsecoach.viewmodel.LiveSessionViewModel
 
 /**
  * The main live session screen. Handles the full flow:
- * permission request → BLE scan → device selection → live HR display.
+ * permission request → BLE scan → device selection → live HR display + recording.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun LiveSessionScreen(
     onNavigateToSettings: () -> Unit = {},
+    onNavigateToHistory: () -> Unit = {},
     viewModel: LiveSessionViewModel = viewModel()
 ) {
     val context = LocalContext.current
 
-    // Determine which permissions we need based on Android version.
-    // Android 12+ (API 31+) uses the new BLUETOOTH_SCAN / BLUETOOTH_CONNECT model.
-    // Older versions use the legacy BLUETOOTH / BLUETOOTH_ADMIN permissions.
     val requiredPermissions = remember {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             arrayOf(Manifest.permission.BLUETOOTH_SCAN, Manifest.permission.BLUETOOTH_CONNECT)
@@ -80,8 +83,6 @@ fun LiveSessionScreen(
         }
     }
 
-    // Track whether all permissions are currently granted.
-    // "var" + "by remember" = a reactive local variable that triggers recomposition when it changes.
     var permissionsGranted by remember {
         mutableStateOf(
             requiredPermissions.all {
@@ -90,28 +91,31 @@ fun LiveSessionScreen(
         )
     }
 
-    // rememberLauncherForActivityResult creates a launcher for the system permission dialog.
-    // The lambda runs when the user responds (grant or deny).
     val permissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestMultiplePermissions()
     ) { result ->
         permissionsGranted = result.values.all { it }
     }
 
-    // collectAsStateWithLifecycle is the Compose-safe way to observe a StateFlow.
-    // It automatically stops collecting when the screen is off-screen, saving battery.
-    val connectionState by viewModel.connectionState.collectAsStateWithLifecycle()
-    val foundDevices    by viewModel.foundDevices.collectAsStateWithLifecycle()
-    val latestHr        by viewModel.latestHr.collectAsStateWithLifecycle()
-    val currentZone     by viewModel.currentZone.collectAsStateWithLifecycle()
-    val hrHistory       by viewModel.hrHistory.collectAsStateWithLifecycle()
-    val zoneConfig      by viewModel.zoneConfig.collectAsStateWithLifecycle()
+    val connectionState     by viewModel.connectionState.collectAsStateWithLifecycle()
+    val foundDevices        by viewModel.foundDevices.collectAsStateWithLifecycle()
+    val latestHr            by viewModel.latestHr.collectAsStateWithLifecycle()
+    val currentZone         by viewModel.currentZone.collectAsStateWithLifecycle()
+    val hrHistory           by viewModel.hrHistory.collectAsStateWithLifecycle()
+    val calPerMinute        by viewModel.currentCalPerMinute.collectAsStateWithLifecycle()
+    val isRecording         by viewModel.isRecording.collectAsStateWithLifecycle()
+    val totalCalories       by viewModel.sessionTotalCalories.collectAsStateWithLifecycle()
+    val sessionAvgBpm       by viewModel.sessionAvgBpm.collectAsStateWithLifecycle()
+    val sessionAvgCalPerMin by viewModel.sessionAvgCalPerMinute.collectAsStateWithLifecycle()
 
     Scaffold(
         topBar = {
             TopAppBar(
                 title = { Text("PulseCoach") },
                 actions = {
+                    TextButton(onClick = onNavigateToHistory) {
+                        Text("History")
+                    }
                     IconButton(onClick = onNavigateToSettings) {
                         Icon(Icons.Default.Settings, contentDescription = "Settings")
                     }
@@ -148,8 +152,14 @@ fun LiveSessionScreen(
                             hr = latestHr,
                             zone = currentZone,
                             hrHistory = hrHistory,
-                            zoneConfig = zoneConfig,
                             deviceName = state.deviceName,
+                            calPerMinute = calPerMinute,
+                            isRecording = isRecording,
+                            sessionTotalCalories = totalCalories,
+                            sessionAvgBpm = sessionAvgBpm,
+                            sessionAvgCalPerMinute = sessionAvgCalPerMin,
+                            onStartRecording = viewModel::startRecording,
+                            onStopRecording = viewModel::stopRecording,
                             onDisconnectClick = { viewModel.disconnect(state.deviceId) }
                         )
 
@@ -159,8 +169,6 @@ fun LiveSessionScreen(
                             onRetryClick = viewModel::startScan
                         )
 
-                    // DevicesFound is not used as a primary navigation state in this flow —
-                    // devices accumulate in foundDevices StateFlow while Scanning is active.
                     else -> DisconnectedContent(onScanClick = viewModel::startScan)
                 }
             }
@@ -169,8 +177,6 @@ fun LiveSessionScreen(
 }
 
 // ── Sub-composables ───────────────────────────────────────────────────────────
-// Breaking the screen into small focused functions keeps each one under 30 lines
-// and makes each state easy to read and preview independently.
 
 @Composable
 private fun PermissionRationaleContent(onGrantClick: () -> Unit) {
@@ -205,10 +211,7 @@ private fun DisconnectedContent(onScanClick: () -> Unit) {
         verticalArrangement = Arrangement.Center,
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        Text(
-            text = "No Device Connected",
-            style = MaterialTheme.typography.headlineSmall
-        )
+        Text("No Device Connected", style = MaterialTheme.typography.headlineSmall)
         Spacer(Modifier.height(8.dp))
         Text(
             text = "Make sure your Polar H10 is powered on and worn.",
@@ -217,9 +220,7 @@ private fun DisconnectedContent(onScanClick: () -> Unit) {
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
         Spacer(Modifier.height(32.dp))
-        Button(onClick = onScanClick) {
-            Text("Scan for Devices")
-        }
+        Button(onClick = onScanClick) { Text("Scan for Devices") }
     }
 }
 
@@ -229,9 +230,7 @@ private fun ScanningContent(
     onDeviceClick: (String) -> Unit,
     onStopClick: () -> Unit
 ) {
-    Column(
-        modifier = Modifier.fillMaxSize().padding(16.dp)
-    ) {
+    Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
         Row(
             verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier.padding(bottom = 16.dp)
@@ -270,9 +269,7 @@ private fun ScanningContent(
 @Composable
 private fun DeviceCard(device: FoundDevice, onClick: () -> Unit) {
     Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onClick),
+        modifier = Modifier.fillMaxWidth().clickable(onClick = onClick),
         elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
     ) {
         Row(
@@ -311,17 +308,23 @@ private fun ConnectedContent(
     hr: HrReading?,
     zone: Int,
     hrHistory: List<HrReading>,
-    zoneConfig: com.pulsecoach.model.ZoneConfig,
     deviceName: String,
+    calPerMinute: Float,
+    isRecording: Boolean,
+    sessionTotalCalories: Float,
+    sessionAvgBpm: Float,
+    sessionAvgCalPerMinute: Float,
+    onStartRecording: () -> Unit,
+    onStopRecording: () -> Unit,
     onDisconnectClick: () -> Unit
 ) {
-    val zoneColor   = ZoneCalculator.colorForZone(zone)
-    val textColor   = ZoneCalculator.textColorForZone(zone)
-    val zoneName    = ZoneCalculator.nameForZone(zone)
+    val zoneColor = ZoneCalculator.colorForZone(zone)
+    val textColor = ZoneCalculator.textColorForZone(zone)
+    val zoneName  = ZoneCalculator.nameForZone(zone)
 
     Column(modifier = Modifier.fillMaxSize()) {
 
-        // Zone color banner — the whole top area pulses with the current zone color
+        // Zone color banner — fills available space above the chart
         Box(
             modifier = Modifier
                 .fillMaxWidth()
@@ -335,12 +338,13 @@ private fun ConnectedContent(
                     Spacer(Modifier.height(8.dp))
                     Text("Waiting for HR data...", color = textColor)
                 } else {
-                    // Large BPM number — the main thing the user watches during a session
+                    // Fixed sp value — the previous `fontSize * 2` worked but was fragile
+                    // (it multiplied a TextUnit by a Float, breaking if the base size changed)
                     Text(
                         text = "${hr.bpm}",
                         style = MaterialTheme.typography.displayLarge.copy(
                             fontWeight = FontWeight.Bold,
-                            fontSize = MaterialTheme.typography.displayLarge.fontSize * 2
+                            fontSize = 96.sp
                         ),
                         color = textColor
                     )
@@ -349,30 +353,28 @@ private fun ConnectedContent(
                         style = MaterialTheme.typography.headlineMedium,
                         color = textColor.copy(alpha = 0.8f)
                     )
-                    Spacer(Modifier.height(8.dp))
+                    Spacer(Modifier.height(4.dp))
                     Text(
                         text = zoneName,
                         style = MaterialTheme.typography.titleLarge,
                         color = textColor
                     )
-                    // Warn the user if the H10 doesn't have good skin contact
-                    if (!hr.contactOk) {
-                        Spacer(Modifier.height(8.dp))
-                        Text(
-                            text = "! Check sensor contact",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = textColor.copy(alpha = 0.7f)
-                        )
-                    }
+                    Spacer(Modifier.height(8.dp))
+                    // Cal/min is always shown once HR is live — gives feedback even before recording.
+                    // Shows 0.0 when HR is below 90 bpm (formula unreliable range).
+                    Text(
+                        text = "%.1f cal/min".format(calPerMinute),
+                        style = MaterialTheme.typography.titleMedium,
+                        color = textColor.copy(alpha = 0.85f)
+                    )
                 }
             }
         }
 
-        // Live scrolling HR chart — visible once we have at least 2 readings
+        // Live HR chart
         if (hrHistory.size >= 2) {
             LiveHrChart(
                 hrHistory = hrHistory,
-                zoneConfig = zoneConfig,
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(180.dp)
@@ -380,22 +382,77 @@ private fun ConnectedContent(
             )
         }
 
-        // Zone indicator strip — 5 boxes, current zone highlighted
+        // Zone indicator strip
         ZoneStrip(currentZone = zone, modifier = Modifier.fillMaxWidth().height(48.dp))
 
-        // Bottom bar
+        // Recording status row — only visible while a session is active
+        if (isRecording) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 6.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                // Left: red dot + "Recording" label
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(
+                        modifier = Modifier
+                            .size(10.dp)
+                            .background(Color(0xFFEF5350), CircleShape)
+                    )
+                    Spacer(Modifier.width(6.dp))
+                    Text(
+                        "Recording",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                }
+
+                // Right: three live running stats
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    StatChip(label = "total", value = "%.1f cal".format(sessionTotalCalories))
+                    StatChip(label = "avg bpm", value = "${sessionAvgBpm.toInt()}")
+                    StatChip(label = "avg cal/min", value = "%.1f".format(sessionAvgCalPerMinute))
+                }
+            }
+        }
+
+        // Bottom action bar
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(16.dp),
+                .padding(horizontal = 16.dp, vertical = 8.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(
                 text = deviceName,
                 style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.weight(1f)
             )
+
+            // Start/Stop recording button — color changes to signal active state
+            if (isRecording) {
+                Button(
+                    onClick = onStopRecording,
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = Color(0xFFEF5350) // red while recording
+                    )
+                ) {
+                    Text("Stop")
+                }
+            } else {
+                Button(onClick = onStartRecording) {
+                    Text("Record")
+                }
+            }
+
+            Spacer(Modifier.width(8.dp))
             OutlinedButton(onClick = onDisconnectClick) {
                 Text("Disconnect")
             }
@@ -403,7 +460,28 @@ private fun ConnectedContent(
     }
 }
 
-/** Five colored boxes representing the five zones; current zone is slightly taller. */
+/**
+ * Compact two-line label used in the recording stats row.
+ * Top line is the value (prominent), bottom line is the label (muted).
+ */
+@Composable
+private fun StatChip(label: String, value: String) {
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        Text(
+            text = value,
+            style = MaterialTheme.typography.labelLarge,
+            fontWeight = FontWeight.Medium,
+            color = MaterialTheme.colorScheme.onSurface
+        )
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+    }
+}
+
+/** Five colored boxes representing the five zones; current zone is at full opacity. */
 @Composable
 private fun ZoneStrip(currentZone: Int, modifier: Modifier = Modifier) {
     Row(modifier = modifier) {
@@ -451,8 +529,6 @@ private fun ErrorContent(message: String, onRetryClick: () -> Unit) {
 }
 
 // ── Previews ──────────────────────────────────────────────────────────────────
-// @Preview functions let Android Studio render the UI without running the app.
-// We pass realistic training data — not Lorem Ipsum — per CLAUDE.md.
 
 @Preview(showBackground = true)
 @Composable
@@ -477,7 +553,7 @@ private fun PreviewScanning() {
 
 @Preview(showBackground = true)
 @Composable
-private fun PreviewConnectedTempo() {
+private fun PreviewConnectedIdle() {
     val fakeHistory = (0 until 20).map { i ->
         HrReading(bpm = 145 + (i % 6) - 2, timestampMs = i * 1000L, contactOk = true)
     }
@@ -486,8 +562,14 @@ private fun PreviewConnectedTempo() {
             hr = HrReading(bpm = 148, timestampMs = 0L, contactOk = true),
             zone = 3,
             hrHistory = fakeHistory,
-            zoneConfig = com.pulsecoach.model.ZoneConfig.defaults,
             deviceName = "Polar H10 B5D3A1",
+            calPerMinute = 9.2f,
+            isRecording = false,
+            sessionTotalCalories = 0f,
+            sessionAvgBpm = 0f,
+            sessionAvgCalPerMinute = 0f,
+            onStartRecording = {},
+            onStopRecording = {},
             onDisconnectClick = {}
         )
     }
@@ -495,17 +577,23 @@ private fun PreviewConnectedTempo() {
 
 @Preview(showBackground = true)
 @Composable
-private fun PreviewConnectedMax() {
+private fun PreviewConnectedRecording() {
     val fakeHistory = (0 until 20).map { i ->
-        HrReading(bpm = 180 + (i % 5), timestampMs = i * 1000L, contactOk = true)
+        HrReading(bpm = 162 + (i % 5) - 2, timestampMs = i * 1000L, contactOk = true)
     }
     MaterialTheme {
         ConnectedContent(
-            hr = HrReading(bpm = 183, timestampMs = 0L, contactOk = true),
-            zone = 5,
+            hr = HrReading(bpm = 164, timestampMs = 0L, contactOk = true),
+            zone = 4,
             hrHistory = fakeHistory,
-            zoneConfig = com.pulsecoach.model.ZoneConfig.defaults,
             deviceName = "Polar H10 B5D3A1",
+            calPerMinute = 11.4f,
+            isRecording = true,
+            sessionTotalCalories = 87.3f,
+            sessionAvgBpm = 161f,
+            sessionAvgCalPerMinute = 10.8f,
+            onStartRecording = {},
+            onStopRecording = {},
             onDisconnectClick = {}
         )
     }

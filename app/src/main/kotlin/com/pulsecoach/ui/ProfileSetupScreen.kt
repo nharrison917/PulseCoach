@@ -1,0 +1,182 @@
+package com.pulsecoach.ui
+
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material3.Button
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.RadioButton
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Text
+import androidx.compose.material3.TopAppBar
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.viewmodel.compose.viewModel
+import com.pulsecoach.model.BiologicalSex
+import com.pulsecoach.viewmodel.ProfileViewModel
+
+/**
+ * Screen for entering user profile (age, weight, sex) required by the Keytel calorie formula.
+ *
+ * On first launch this is the start destination. The back button is hidden so the user
+ * can't skip setup. After saving, [onProfileSaved] is called and the caller navigates
+ * to the main session screen (popping this screen off the back stack so back never returns here).
+ *
+ * The same screen is reachable from Settings to edit an existing profile.
+ * In that case, [onNavigateBack] is non-null and the back arrow is shown.
+ *
+ * @param onProfileSaved   Called after a successful save.
+ * @param onNavigateBack   If non-null, shown as a back arrow in the top bar (edit mode).
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun ProfileSetupScreen(
+    onProfileSaved: () -> Unit,
+    onNavigateBack: (() -> Unit)? = null,
+    viewModel: ProfileViewModel = viewModel()
+) {
+    val age by viewModel.age.collectAsStateWithLifecycle()
+    val weightKg by viewModel.weightKg.collectAsStateWithLifecycle()
+    val sex by viewModel.sex.collectAsStateWithLifecycle()
+
+    // Only show the validation error message after the user first tries to save
+    var showError by remember { mutableStateOf(false) }
+
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text("Your Profile") },
+                navigationIcon = {
+                    // No back arrow on first launch — the user must complete setup
+                    if (onNavigateBack != null) {
+                        IconButton(onClick = onNavigateBack) {
+                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                        }
+                    }
+                }
+            )
+        }
+    ) { padding ->
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(padding)
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 24.dp),
+            verticalArrangement = Arrangement.spacedBy(20.dp)
+        ) {
+            Spacer(Modifier.height(8.dp))
+
+            Text(
+                "PulseCoach uses your age, weight, and biological sex to calculate " +
+                    "calories per minute using the Keytel (2005) formula. " +
+                    "These values are stored only on your device.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+
+            // Age input — digits only, range 10–100
+            OutlinedTextField(
+                value = age,
+                onValueChange = { viewModel.onAgeChange(it.filter { c -> c.isDigit() }) },
+                label = { Text("Age") },
+                suffix = { Text("years") },
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth(),
+                isError = showError && age.toIntOrNull()?.let { it !in 10..100 } != false,
+                supportingText = if (showError && age.toIntOrNull()?.let { it !in 10..100 } != false) {
+                    { Text("Enter a value between 10 and 100") }
+                } else null
+            )
+
+            // Weight input — allows one decimal point, range 30–250 kg
+            OutlinedTextField(
+                value = weightKg,
+                onValueChange = { input ->
+                    // Allow digits and at most one decimal point
+                    val cleaned = input.filter { it.isDigit() || it == '.' }
+                    val dotCount = cleaned.count { it == '.' }
+                    if (dotCount <= 1) viewModel.onWeightChange(cleaned)
+                },
+                label = { Text("Weight") },
+                suffix = { Text("kg") },
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth(),
+                isError = showError && weightKg.toFloatOrNull()?.let { it !in 30f..250f } != false,
+                supportingText = if (showError && weightKg.toFloatOrNull()?.let { it !in 30f..250f } != false) {
+                    { Text("Enter a value between 30 and 250") }
+                } else null
+            )
+
+            // Biological sex — two radio buttons
+            Column {
+                Text(
+                    "Biological sex",
+                    style = MaterialTheme.typography.bodyLarge,
+                    fontWeight = FontWeight.Medium
+                )
+                Text(
+                    "Determines which Keytel coefficient set to use",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Spacer(Modifier.height(8.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                    BiologicalSex.entries.forEach { option ->
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            RadioButton(
+                                selected = sex == option,
+                                onClick = { viewModel.onSexChange(option) }
+                            )
+                            Text(
+                                // "MALE" -> "Male"
+                                text = option.name.lowercase().replaceFirstChar { it.uppercase() },
+                                modifier = Modifier.padding(start = 4.dp)
+                            )
+                        }
+                    }
+                }
+            }
+
+            Button(
+                onClick = {
+                    if (viewModel.saveProfile()) {
+                        onProfileSaved()
+                    } else {
+                        showError = true
+                    }
+                },
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text("Save Profile")
+            }
+
+            Spacer(Modifier.height(24.dp))
+        }
+    }
+}

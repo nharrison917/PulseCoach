@@ -8,7 +8,10 @@ import androidx.compose.material3.MaterialTheme
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
+import com.pulsecoach.repository.UserProfileRepository
 import com.pulsecoach.ui.LiveSessionScreen
+import com.pulsecoach.ui.ProfileSetupScreen
+import com.pulsecoach.ui.SessionHistoryScreen
 import com.pulsecoach.ui.SettingsScreen
 
 /**
@@ -21,25 +24,58 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+
+        // Check first-launch flag before rendering anything.
+        // SharedPreferences.getBoolean is synchronous and safe on the main thread
+        // for a single boolean read — it does not do disk I/O on every call.
+        val repository = UserProfileRepository(this)
+        val startDestination = if (repository.isProfileComplete()) "live_session" else "profile_setup"
+
         setContent {
             MaterialTheme {
-                // NavController tracks which screen is currently shown and handles
-                // the back stack. rememberNavController() ties its lifecycle to this composable.
                 val navController = rememberNavController()
 
-                // NavHost declares all routes. startDestination is what opens first.
-                NavHost(navController = navController, startDestination = "live_session") {
+                NavHost(navController = navController, startDestination = startDestination) {
+
+                    // First-launch onboarding: no back button, replaces itself with live_session
+                    composable("profile_setup") {
+                        ProfileSetupScreen(
+                            onProfileSaved = {
+                                // popUpTo removes profile_setup from the back stack so the user
+                                // can never navigate back to onboarding with the back button.
+                                navController.navigate("live_session") {
+                                    popUpTo("profile_setup") { inclusive = true }
+                                }
+                            },
+                            onNavigateBack = null
+                        )
+                    }
+
+                    // Edit mode reached from Settings: shows back arrow, pops back on save
+                    composable("profile_edit") {
+                        ProfileSetupScreen(
+                            onProfileSaved = { navController.popBackStack() },
+                            onNavigateBack = { navController.popBackStack() }
+                        )
+                    }
 
                     composable("live_session") {
                         LiveSessionScreen(
-                            onNavigateToSettings = { navController.navigate("settings") }
+                            onNavigateToSettings = { navController.navigate("settings") },
+                            onNavigateToHistory  = { navController.navigate("session_history") }
+                        )
+                    }
+
+                    composable("session_history") {
+                        SessionHistoryScreen(
+                            onNavigateBack = { navController.popBackStack() }
                         )
                     }
 
                     composable("settings") {
                         SettingsScreen(
-                            // popBackStack() returns to live_session without recreating it
-                            onNavigateBack = { navController.popBackStack() }
+                            onNavigateBack = { navController.popBackStack() },
+                            onNavigateToProfile = { navController.navigate("profile_edit") }
                         )
                     }
                 }

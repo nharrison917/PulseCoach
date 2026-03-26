@@ -52,12 +52,14 @@ private const val ZONE_GAP = 5 // minimum bpm separation between zone boundaries
  * Sliders adjust draft values locally. Changes are only written to Room when
  * the user taps Save, so accidental adjustments don't affect the live session.
  *
- * @param onNavigateBack  Called when the user taps the back arrow.
+ * @param onNavigateBack       Called when the user taps the back arrow.
+ * @param onNavigateToProfile  Called when the user taps "Edit Profile".
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettingsScreen(
     onNavigateBack: () -> Unit,
+    onNavigateToProfile: () -> Unit,
     viewModel: SettingsViewModel = viewModel()
 ) {
     val saved by viewModel.savedZoneConfig.collectAsStateWithLifecycle()
@@ -197,6 +199,24 @@ fun SettingsScreen(
                 ) {
                     Text("Save")
                 }
+            }
+
+            Spacer(Modifier.height(16.dp))
+            HorizontalDivider()
+            Spacer(Modifier.height(16.dp))
+
+            // User profile is in a separate section so it's easy to find
+            Text(
+                "User Profile",
+                style = MaterialTheme.typography.titleSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Spacer(Modifier.height(8.dp))
+            OutlinedButton(
+                onClick = onNavigateToProfile,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text("Edit Profile (age, weight, sex)")
             }
 
             Spacer(Modifier.height(24.dp))
