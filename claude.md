@@ -1,0 +1,110 @@
+Project Identity
+•	Name: PulseCoach
+•	Type: Personal Android application (Kotlin + Jetpack Compose)
+•	Hardware: Polar H10 heart rate monitor via Bluetooth LE
+•	Owner: Solo developer — beginner learning Android with AI assistance
+•	Goal: Real-time HR zones, caloric effort tracking, personal projection engine
+
+Developer Context
+I am a graduate student in quantitative business analytics learning to code. I am comfortable with data concepts and logic, but new to Android, Kotlin, and mobile architecture. When helping me:
+•	Explain why, not just what. If you write a pattern I haven't seen before, add a one-line comment explaining the concept.
+•	Prefer simple and readable over clever and concise. I will trade 5 lines for clarity every time.
+•	Flag when something is a beginner trap — e.g., doing network/BLE work on the main thread, memory leaks from unregistered listeners.
+•	When I ask a vague question, ask one clarifying question before writing code.
+•	Do not refactor working code unless I ask. Stability matters more than perfection right now.
+
+Architecture
+Pattern
+MVVM (Model-View-ViewModel) with a Repository layer. Do not suggest other patterns without a strong reason.
+Package Structure
+com.pulsecoach/
+  ui/           Compose screens and components
+  viewmodel/    ViewModels — one per screen
+  repository/   Data access layer (BLE + Room)
+  data/         Room entities, DAOs, Database
+  ble/          Polar SDK wrapper and HR stream logic
+  model/        Pure data classes (Session, HRSample, ZoneConfig)
+  util/         Calorie formula, zone calculator, CSV exporter
+State Management
+Use StateFlow and collectAsState() in Compose. Avoid LiveData — StateFlow is the current standard.
+
+Key Libraries & Versions
+•	Polar BLE SDK: com.github.polarofficial:polar-ble-sdk (latest stable)
+•	Jetpack Compose BOM: use the latest stable BOM version
+•	Vico charts: com.patrykandpatrick.vico:compose (latest stable)
+•	Room: androidx.room (latest stable)
+•	Coroutines: kotlinx-coroutines-android
+Always check for the latest stable version before suggesting a version number. Never pin to a beta unless I ask.
+
+BLE & Hardware Rules
+•	All BLE operations must run on a background coroutine. Never block the main thread.
+•	The Polar SDK uses RxJava internally. Wrap emissions in callbackFlow to bridge to Kotlin coroutines.
+•	Always unregister the BLE callback in onDestroy / onCleared to prevent memory leaks.
+•	The H10 sends HR once per second. Do not attempt to poll faster.
+•	BLE permissions required: BLUETOOTH_SCAN, BLUETOOTH_CONNECT (Android 12+). Add runtime permission checks.
+
+Calorie Calculation
+Use the Keytel et al. (2005) formula. User inputs (age, weight, sex) are stored in SharedPreferences under UserProfile.
+Male formula
+cal/min = (-55.0969 + 0.6309*HR + 0.1988*weight_kg + 0.2017*age) / 4.184
+Female formula
+cal/min = (-20.4022 + 0.4472*HR - 0.1263*weight_kg + 0.074*age) / 4.184
+Clamp output to >= 0. Do not apply this formula below HR = 90 bpm (unreliable range).
+
+Zone Logic
+Zones are user-defined. ZoneConfig is stored in Room. The defaults below are suggestions only — the user may change them:
+•	Zone 1 (Recovery): < 115 bpm
+•	Zone 2 (Aerobic): 115-135 bpm
+•	Zone 3 (Tempo): 136-155 bpm
+•	Zone 4 (Threshold): 156-175 bpm
+•	Zone 5 (Max): > 175 bpm
+Zone colors: use a consistent palette. Suggested: Z1=#80B4FF, Z2=#80E27E, Z3=#FFD54F, Z4=#FF8A65, Z5=#EF5350
+
+Data Storage
+•	Room database: PulseCoachDatabase (version 1, increment on schema change with migration).
+•	Tables: sessions, hr_samples, zone_config.
+•	User profile (age, weight, sex): SharedPreferences, not Room.
+•	Never delete session data without explicit user confirmation.
+
+CSV Export Format
+Export one file per session. Filename format: pulsecoach_YYYYMMDD_HHMMSS.csv
+Required columns:
+timestamp_ms, bpm, zone, cal_per_min, cumulative_cal
+Write to the Downloads folder using MediaStore API (Android 10+).
+
+Projection Engine (Phase 3)
+Build in two sub-phases:
+Phase 3a — In-session extrapolation
+•	After 10 minutes of data, fit a polynomial to the cumulative calorie curve.
+•	Project the polynomial to the session target end time.
+•	Display as a dashed line extension on the cal/min graph.
+Phase 3b — Historical weighting
+•	After 10+ sessions are stored, compute a per-minute average calorie curve across past sessions.
+•	Blend the polynomial projection (weight 0.4) with the historical curve (weight 0.6).
+•	Weights can be tuned — expose as a developer setting in debug builds.
+Do not implement Phase 3b until Phase 3a is working and tested.
+
+Testing Strategy
+•	Unit test the calorie formula and zone calculator — these are pure functions, easy to test.
+•	Use a mock BLE data source (emitting fake HR values on a timer) for UI testing without hardware.
+•	Do not write UI instrumentation tests until Phase 2 is complete.
+
+Code Style
+•	Kotlin idioms preferred: use data classes, sealed classes for state, extension functions for utilities.
+•	No Hungarian notation. No abbreviations in variable names except well-known ones (hr, bpm, id).
+•	Every public function gets a one-line KDoc comment.
+•	If a function exceeds ~30 lines, suggest a refactor and ask before proceeding.
+
+What NOT to Do
+•	Do not add Firebase, analytics SDKs, or any external network calls. This app is fully offline.
+•	Do not suggest Fragments — this app uses Compose navigation only.
+•	Do not use GlobalScope for coroutines. Use viewModelScope or lifecycleScope.
+•	Do not add dependencies without explaining what they are and why they are needed.
+•	Do not generate placeholder UI with Lorem Ipsum — use realistic training data in previews.
+
+Current Phase
+Phase 1 — Live HR + Zones. Focus on:
+•	Polar SDK BLE connection and HR stream.
+•	Live scrolling HR graph with zone color bands using Vico.
+•	Settings screen for zone threshold configuration.
+Do not begin Phase 2 work until the Phase 1 checklist in README.md is complete.

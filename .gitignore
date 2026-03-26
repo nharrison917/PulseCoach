@@ -1,0 +1,19 @@
+# Gradle build outputs
+.gradle/
+build/
+app/build/
+
+# Android Studio project files (you work in VS Code, so these are noise)
+.idea/
+*.iml
+local.properties
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Claude Code local settings (personal overrides — not for the repo)
+.claude/settings.local.json
+
+# The wrapper jar IS committed — it's needed for ./gradlew to work without a Gradle install
+# gradle/wrapper/gradle-wrapper.jar  <-- intentionally NOT ignored

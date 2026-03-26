@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!--
+        The XML theme is just the window chrome (status bar, background color).
+        All actual Material3 theming is done in Kotlin with MaterialTheme {} in Compose.
+        NoActionBar = we don't want the old-style title bar; Compose handles the toolbar.
+    -->
+    <style name="Theme.PulseCoach" parent="Theme.Material3.DayNight.NoActionBar" />
+</resources>
