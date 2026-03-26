@@ -29,12 +29,17 @@ State Management
 Use StateFlow and collectAsState() in Compose. Avoid LiveData — StateFlow is the current standard.
 
 Key Libraries & Versions
-•	Polar BLE SDK: com.github.polarofficial:polar-ble-sdk (latest stable)
-•	Jetpack Compose BOM: use the latest stable BOM version
-•	Vico charts: com.patrykandpatrick.vico:compose (latest stable)
-•	Room: androidx.room (latest stable)
-•	Coroutines: kotlinx-coroutines-android
-Always check for the latest stable version before suggesting a version number. Never pin to a beta unless I ask.
+Pinned versions (do not change without a reason — these are known to compile together):
+•	AGP: 8.7.3
+•	Kotlin: 2.1.0
+•	KSP: 2.1.0-1.0.29
+•	Compose BOM: 2025.02.00
+•	Room: 2.6.1
+•	Coroutines: 1.9.0
+•	Polar BLE SDK: com.github.polarofficial:polar-ble-sdk:5.4.0 (JitPack)
+•	RxJava3: 3.1.9 / RxAndroid: 3.0.2 (required by Polar SDK)
+•	Vico: com.patrykandpatrick.vico:compose-m3:2.0.0-beta.3
+•	Material: com.google.android.material:material:1.12.0
 
 BLE & Hardware Rules
 •	All BLE operations must run on a background coroutine. Never block the main thread.
@@ -102,9 +107,30 @@ What NOT to Do
 •	Do not add dependencies without explaining what they are and why they are needed.
 •	Do not generate placeholder UI with Lorem Ipsum — use realistic training data in previews.
 
+SDK Gotchas (hard-won — read before touching these APIs)
+Vico 2.0.0-beta.3
+•	ShapeComponent constructor: use ShapeComponent(fill = Fill(color.toArgb())) — there is no color parameter. Fill wraps an ARGB int. Import: com.patrykandpatrick.vico.core.common.Fill
+•	HorizontalLayout does not exist in this version. Do not import or use it.
+•	HorizontalBox is the correct class for zone band decorations on the chart.
+
+Polar BLE SDK 5.4.0
+•	PolarBleApiCallback.deviceDisconnected takes ONE parameter (polarDeviceInfo: PolarDeviceInfo). There is no reason: Int second parameter in this version. Adding it causes a compile error.
+
+Material XML Theme
+•	The app theme in res/values/themes.xml uses Theme.Material3.DayNight.NoActionBar. This requires the com.google.android.material:material:1.12.0 library even though the rest of the UI is Compose. Without it, processDebugResources fails.
+
 Current Phase
-Phase 1 — Live HR + Zones. Focus on:
-•	Polar SDK BLE connection and HR stream.
-•	Live scrolling HR graph with zone color bands using Vico.
-•	Settings screen for zone threshold configuration.
-Do not begin Phase 2 work until the Phase 1 checklist in README.md is complete.
+Phase 1 — COMPLETE. All Phase 1 checklist items in README.md are checked off.
+
+Phase 2 — Session Recording. Focus on:
+•	User profile setup (age, weight, sex) — stored in SharedPreferences
+•	Keytel calorie formula (see Calorie Calculation section above)
+•	Session start/stop recording — writes to Room (sessions + hr_samples tables)
+•	Cal/min live graph alongside HR graph
+•	Session history list screen
+•	CSV export to Downloads folder (MediaStore API)
+
+Known issues carried forward from Phase 1 (fix at Phase 2 start):
+•	Chart y-axis auto-ranges — set a fixed floor (~50 bpm) so zone bands don't look cramped.
+•	BPM font uses fontSize * 2 multiplier — replace with an explicit sp value.
+•	No BLE reconnection logic — user must scan again after a signal drop.
