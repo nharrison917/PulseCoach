@@ -48,11 +48,14 @@ import com.patrykandpatrick.vico.core.cartesian.layer.LineCartesianLayer
  *
  * @param actualPoints     (elapsedMinutes, cumulativeCalories) — one per minute.
  * @param projectedPoints  Projected curve from [PolynomialProjector.project], or null.
+ * @param isBlended        True when the projection is a poly+historical blend (>= 10 sessions).
+ *                         Controls the caption label shown below the chart.
  */
 @Composable
 fun LiveCalorieChart(
     actualPoints: List<Pair<Float, Float>>,
     projectedPoints: List<Pair<Float, Float>>?,
+    isBlended: Boolean = false,
     modifier: Modifier = Modifier
 ) {
     val modelProducer = remember { CartesianChartModelProducer() }
@@ -138,10 +141,11 @@ fun LiveCalorieChart(
                 .weight(1f)
         )
 
-        // Caption below the chart: tells the user when projection is active
+        // Caption below the chart: shows projection mode and start point when active
         val caption = if (projectedPoints != null) {
             val startMinute = actualPoints.last().first.toInt()
-            "Projection from min $startMinute"
+            val mode = if (isBlended) "Historical blend" else "Polynomial projection"
+            "$mode from min $startMinute"
         } else {
             "Projection starts after 10 min"
         }

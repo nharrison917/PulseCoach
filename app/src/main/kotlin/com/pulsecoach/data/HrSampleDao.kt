@@ -36,4 +36,17 @@ interface HrSampleDao {
     /** Delete all HR samples belonging to the given session IDs. Called before deleting sessions. */
     @Query("DELETE FROM hr_samples WHERE sessionId IN (:sessionIds)")
     suspend fun deleteBySessionIds(sessionIds: List<Long>)
+
+    /**
+     * Bulk-fetch all samples for a set of sessions in one query.
+     * Used by HistoricalAverager to load all qualifying sessions' data at once
+     * rather than making one query per session (which would be much slower).
+     * Results are ordered so all samples for each session are contiguous.
+     */
+    @Query("""
+        SELECT * FROM hr_samples
+        WHERE sessionId IN (:sessionIds)
+        ORDER BY sessionId ASC, timestampMs ASC
+    """)
+    suspend fun getSamplesForSessions(sessionIds: List<Long>): List<HrSampleEntity>
 }

@@ -15,6 +15,7 @@ import com.pulsecoach.repository.SessionRepository
 import com.pulsecoach.repository.UserProfileRepository
 import com.pulsecoach.repository.ZoneConfigRepository
 import com.pulsecoach.util.CalorieCalculator
+import com.pulsecoach.util.HistoricalAverager
 import com.pulsecoach.util.PolynomialProjector
 import com.pulsecoach.util.ZoneCalculator
 import kotlinx.coroutines.Job
@@ -120,11 +121,27 @@ class LiveSessionViewModel(application: Application) : AndroidViewModel(applicat
     val actualCalorieCurve: StateFlow<List<Pair<Float, Float>>> = _actualCalorieCurve.asStateFlow()
 
     /**
-     * Polynomial projection of the calorie curve to [targetDurationMinutes].
-     * Null until [PolynomialProjector.MIN_DATA_MINUTES] of data have been recorded.
+     * Projected calorie curve to [targetDurationMinutes]. Null until 10 min of data exist.
+     * Contains a polynomial-only projection when < [HistoricalAverager.BLEND_MIN_SESSIONS]
+     * qualifying sessions are available, or a blended (poly + historical) projection otherwise.
      */
     private val _projectedCalorieCurve = MutableStateFlow<List<Pair<Float, Float>>?>(null)
     val projectedCalorieCurve: StateFlow<List<Pair<Float, Float>>?> = _projectedCalorieCurve.asStateFlow()
+
+    /**
+     * Number of sessions that qualify for historical averaging (completed, avgBpm > 100,
+     * duration > 10 min). Exposed to the UI so the chart label can reflect the active mode.
+     * Drives the switch from "Polynomial projection" to "Historical blend" at
+     * [HistoricalAverager.BLEND_MIN_SESSIONS].
+     */
+    private val _qualifyingSessionCount = MutableStateFlow(0)
+    val qualifyingSessionCount: StateFlow<Int> = _qualifyingSessionCount.asStateFlow()
+
+    // Cached historical curve recomputed whenever the qualifying session set changes.
+    // Only non-null when qualifyingSessionCount >= BLEND_MIN_SESSIONS.
+    // Written from a coroutine, read in startHrStream — both run on viewModelScope (main thread),
+    // so no synchronization is needed.
+    private var historicalCurve: List<Float>? = null
 
     // --- Session recording accumulators ---
     // These are only written from coroutines on Dispatchers.Main (viewModelScope default),
@@ -145,6 +162,27 @@ class LiveSessionViewModel(application: Application) : AndroidViewModel(applicat
     private var hrJob: Job? = null
 
     init {
+        // Watch qualifying sessions and rebuild the historical curve whenever they change.
+        // This runs once at startup and again after seeding or finishing a real session.
+        // getSamplesForSessions is a suspend call — safe here because the collect lambda
+        // is itself a suspend block running inside a coroutine launched on viewModelScope.
+        viewModelScope.launch {
+            sessionRepository.getQualifyingSessions().collect { sessions ->
+                _qualifyingSessionCount.value = sessions.size
+                if (sessions.size >= HistoricalAverager.BLEND_MIN_SESSIONS) {
+                    val ids = sessions.map { it.id }
+                    val allSamples = sessionRepository.getSamplesForSessions(ids)
+                    historicalCurve = HistoricalAverager.buildCurve(
+                        sessions = sessions,
+                        samples = allSamples,
+                        targetMinutes = 60   // cover the max selectable session duration
+                    )
+                } else {
+                    historicalCurve = null
+                }
+            }
+        }
+
         viewModelScope.launch {
             connectionState.collect { state ->
                 when (state) {
@@ -304,13 +342,23 @@ class LiveSessionViewModel(application: Application) : AndroidViewModel(applicat
                             _actualCalorieCurve.value = updatedCurve
 
                             // Recompute projection once per minute after MIN_DATA_MINUTES.
-                            // Project against a snapshot of targetDurationMinutes so the
-                            // endpoint stays stable even if the user somehow changes it.
+                            // If enough historical sessions exist, blend poly + historical;
+                            // otherwise use polynomial only.
                             if (elapsedMinute >= PolynomialProjector.MIN_DATA_MINUTES.toInt()) {
-                                _projectedCalorieCurve.value = PolynomialProjector.project(
+                                val polyProjection = PolynomialProjector.project(
                                     dataPoints = updatedCurve,
                                     targetMinutes = _targetDurationMinutes.value.toFloat()
                                 )
+                                val historical = historicalCurve
+                                _projectedCalorieCurve.value = if (
+                                    polyProjection != null &&
+                                    historical != null &&
+                                    _qualifyingSessionCount.value >= HistoricalAverager.BLEND_MIN_SESSIONS
+                                ) {
+                                    HistoricalAverager.blend(polyProjection, historical)
+                                } else {
+                                    polyProjection
+                                }
                             }
                         }
 

@@ -110,6 +110,12 @@ What NOT to Do
 •	Do not add dependencies without explaining what they are and why they are needed.
 •	Do not generate placeholder UI with Lorem Ipsum — use realistic training data in previews.
 
+Token Efficiency (lessons from this project)
+•	Grep before you read. A targeted grep to find the exact lines you need is almost always cheaper than reading a whole file.
+•	Infer schema from mapping helpers. SessionRepository's toDomain() / toEntity() already shows every field — no need to also read the entity files.
+•	Check for existing usage before adding new APIs. Before importing BuildConfig, grep the codebase for it. No hits → check build.gradle.kts for the opt-in flag before writing any code.
+•	Write imports before code, not after. Discovering a missing import mid-implementation forces an extra edit round.
+
 SDK Gotchas (hard-won — read before touching these APIs)
 Vico 2.0.0-beta.3
 •	ShapeComponent constructor: use ShapeComponent(fill = Fill(color.toArgb())) — there is no color parameter. Fill wraps an ARGB int. Import: com.patrykandpatrick.vico.core.common.Fill
@@ -133,15 +139,15 @@ Material XML Theme
 Current Phase
 Phase 1 — COMPLETE.
 Phase 2 — COMPLETE (all core + all polish items including multi-select delete).
-Phase 3 — IN PROGRESS. Stage 1 (Phase 3a) complete.
+Phase 3 — IN PROGRESS. Stages 1, 2, and 3 complete.
 
 Phase 2 Polish — COMPLETE (all items done).
 
 Phase 3 — Projection Engine:
 Stage 1 (COMPLETE): PolynomialProjector + LiveCalorieChart + duration picker + 12 unit tests
-Stage 2 (next): SyntheticSessionGenerator → seed button (debug) → SYN tag on history cards
-Stage 3: HistoricalAverager → blend logic (0.4 poly + 0.6 historical) → qualifying session filter
-Stage 4: EvaluationViewModel + EvaluationScreen (debug only) → MAE/MAPE accuracy charts
+Stage 2 (COMPLETE): SyntheticSessionGenerator → seed button (debug) → SYN tag on history cards
+Stage 3 (COMPLETE): HistoricalAverager → blend logic (0.4 poly + 0.6 historical) → qualifying session filter → 8 unit tests
+Stage 4 (next): EvaluationViewModel + EvaluationScreen (debug only) → MAE/MAPE accuracy charts
 
 Known issues carried forward:
 •	No BLE reconnection logic — user must scan again after a signal drop.

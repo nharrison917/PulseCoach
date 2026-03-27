@@ -9,13 +9,23 @@ import androidx.lifecycle.viewModelScope
 import com.pulsecoach.data.PulseCoachDatabase
 import com.pulsecoach.model.Session
 import com.pulsecoach.repository.SessionRepository
+import com.pulsecoach.repository.UserProfileRepository
 import com.pulsecoach.util.CsvExporter
+import com.pulsecoach.util.SyntheticSessionGenerator
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+
+/** State of a synthetic session seed operation. */
+sealed class SeedingState {
+    object Idle : SeedingState()
+    object InProgress : SeedingState()
+    data class Done(val count: Int) : SeedingState()
+    data class Error(val message: String) : SeedingState()
+}
 
 /** Result of a CSV export attempt, shown to the user as a snackbar message. */
 sealed class ExportResult {
@@ -58,6 +68,10 @@ class SessionHistoryViewModel(application: Application) : AndroidViewModel(appli
      */
     private val _exportResult = MutableStateFlow<ExportResult?>(null)
     val exportResult: StateFlow<ExportResult?> = _exportResult.asStateFlow()
+
+    /** Tracks the state of a synthetic session seeding operation. */
+    private val _seedingState = MutableStateFlow<SeedingState>(SeedingState.Idle)
+    val seedingState: StateFlow<SeedingState> = _seedingState.asStateFlow()
 
     /**
      * Exports all HR samples for [sessionId] to a CSV file in the Downloads folder.
@@ -124,6 +138,31 @@ class SessionHistoryViewModel(application: Application) : AndroidViewModel(appli
     /** Called by the screen after it has displayed the export result snackbar. */
     fun clearExportResult() {
         _exportResult.value = null
+    }
+
+    /**
+     * Seeds 12 synthetic sessions into Room using the saved user profile.
+     * Only called from debug builds via the Seed button on the history screen.
+     *
+     * Reads UserProfile from SharedPreferences at seed time (same approach the live
+     * screen uses for calorie display).
+     */
+    fun seedSyntheticSessions() {
+        viewModelScope.launch {
+            _seedingState.value = SeedingState.InProgress
+            val profile = UserProfileRepository(getApplication()).getProfile()
+            if (profile == null) {
+                _seedingState.value = SeedingState.Error("No user profile saved. Complete setup first.")
+                return@launch
+            }
+            repository.seedSyntheticSessions(profile)
+            _seedingState.value = SeedingState.Done(SyntheticSessionGenerator.SESSION_CONFIGS.size)
+        }
+    }
+
+    /** Called by the screen after it has displayed the seeding result snackbar. */
+    fun clearSeedingState() {
+        _seedingState.value = SeedingState.Idle
     }
 
     /** Adds or removes a session from the selection set. */

@@ -44,4 +44,20 @@ interface SessionDao {
     /** Delete sessions by their IDs. Called during multi-select deletion. */
     @Query("DELETE FROM sessions WHERE id IN (:ids)")
     suspend fun deleteByIds(ids: List<Long>)
+
+    /**
+     * Returns completed sessions with avgBpm > 100 and actual duration > 10 minutes.
+     * Duration is computed from timestamps so it works for all sessions regardless of
+     * whether targetDurationMs was set (it was null before the duration picker existed).
+     * Emits a new list whenever session rows change — the ViewModel reacts automatically
+     * without needing a manual refresh after seeding or finishing a session.
+     */
+    @Query("""
+        SELECT * FROM sessions
+        WHERE endTimeMs IS NOT NULL
+          AND avgBpm > 100
+          AND (endTimeMs - startTimeMs) > 600000
+        ORDER BY startTimeMs ASC
+    """)
+    fun getQualifyingSessions(): Flow<List<SessionEntity>>
 }

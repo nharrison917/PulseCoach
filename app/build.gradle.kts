@@ -37,7 +37,8 @@ android {
     }
 
     buildFeatures {
-        compose = true  // Enable Jetpack Compose
+        compose = true       // Enable Jetpack Compose
+        buildConfig = true   // Generate BuildConfig.DEBUG (disabled by default in AGP 8+)
     }
 }
 

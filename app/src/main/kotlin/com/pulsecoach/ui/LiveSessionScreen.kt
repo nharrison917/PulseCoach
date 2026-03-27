@@ -113,8 +113,9 @@ fun LiveSessionScreen(
     val sessionAvgCalPerMin   by viewModel.sessionAvgCalPerMinute.collectAsStateWithLifecycle()
     val sessionElapsedSeconds by viewModel.sessionElapsedSeconds.collectAsStateWithLifecycle()
     val targetDuration        by viewModel.targetDurationMinutes.collectAsStateWithLifecycle()
-    val actualCalorieCurve    by viewModel.actualCalorieCurve.collectAsStateWithLifecycle()
-    val projectedCalorie      by viewModel.projectedCalorieCurve.collectAsStateWithLifecycle()
+    val actualCalorieCurve       by viewModel.actualCalorieCurve.collectAsStateWithLifecycle()
+    val projectedCalorie         by viewModel.projectedCalorieCurve.collectAsStateWithLifecycle()
+    val qualifyingSessionCount   by viewModel.qualifyingSessionCount.collectAsStateWithLifecycle()
 
     Scaffold(
         topBar = {
@@ -170,6 +171,7 @@ fun LiveSessionScreen(
                             targetDurationMinutes = targetDuration,
                             actualCalorieCurve = actualCalorieCurve,
                             projectedCalorieCurve = projectedCalorie,
+                            isBlended = qualifyingSessionCount >= 10,
                             onTargetDurationChange = viewModel::setTargetDuration,
                             onStartRecording = viewModel::startRecording,
                             onStopRecording = viewModel::stopRecording,
@@ -331,6 +333,7 @@ private fun ConnectedContent(
     targetDurationMinutes: Int,
     actualCalorieCurve: List<Pair<Float, Float>>,
     projectedCalorieCurve: List<Pair<Float, Float>>?,
+    isBlended: Boolean,
     onTargetDurationChange: (Int) -> Unit,
     onStartRecording: () -> Unit,
     onStopRecording: () -> Unit,
@@ -382,6 +385,7 @@ private fun ConnectedContent(
             LiveCalorieChart(
                 actualPoints = actualCalorieCurve,
                 projectedPoints = projectedCalorieCurve,
+                isBlended = isBlended,
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(160.dp)
@@ -674,6 +678,7 @@ private fun PreviewConnectedIdle() {
             targetDurationMinutes = 45,
             actualCalorieCurve = emptyList(),
             projectedCalorieCurve = null,
+            isBlended = false,
             onTargetDurationChange = {},
             onStartRecording = {},
             onStopRecording = {},
@@ -703,6 +708,7 @@ private fun PreviewConnectedRecording() {
             targetDurationMinutes = 45,
             actualCalorieCurve = (0..15).map { i -> i.toFloat() to (i * 9f + 0.05f * i * i) },
             projectedCalorieCurve = null,
+            isBlended = false,
             onTargetDurationChange = {},
             onStartRecording = {},
             onStopRecording = {},

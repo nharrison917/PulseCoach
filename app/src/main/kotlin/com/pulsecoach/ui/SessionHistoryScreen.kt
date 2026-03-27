@@ -3,8 +3,10 @@ package com.pulsecoach.ui
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -14,10 +16,12 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.ui.graphics.Color
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -50,8 +54,10 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.pulsecoach.BuildConfig
 import com.pulsecoach.model.Session
 import com.pulsecoach.viewmodel.ExportResult
+import com.pulsecoach.viewmodel.SeedingState
 import com.pulsecoach.viewmodel.SessionHistoryViewModel
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -70,9 +76,10 @@ fun SessionHistoryScreen(
     onNavigateBack: () -> Unit,
     viewModel: SessionHistoryViewModel = viewModel()
 ) {
-    val sessions     by viewModel.sessions.collectAsStateWithLifecycle()
-    val exportResult by viewModel.exportResult.collectAsStateWithLifecycle()
-    val selectedIds  by viewModel.selectedIds.collectAsStateWithLifecycle()
+    val sessions      by viewModel.sessions.collectAsStateWithLifecycle()
+    val exportResult  by viewModel.exportResult.collectAsStateWithLifecycle()
+    val selectedIds   by viewModel.selectedIds.collectAsStateWithLifecycle()
+    val seedingState  by viewModel.seedingState.collectAsStateWithLifecycle()
 
     // Derived from selectedIds — drives which top bar and card interactions are shown.
     val isInSelectionMode = selectedIds.isNotEmpty()
@@ -94,6 +101,17 @@ fun SessionHistoryScreen(
         }
         snackbarHostState.showSnackbar(message)
         viewModel.clearExportResult()
+    }
+
+    // Show a snackbar when seeding completes or errors; ignore Idle/InProgress
+    LaunchedEffect(seedingState) {
+        val message = when (val state = seedingState) {
+            is SeedingState.Done  -> "${state.count} synthetic sessions seeded"
+            is SeedingState.Error -> "Seed failed: ${state.message}"
+            else -> return@LaunchedEffect
+        }
+        snackbarHostState.showSnackbar(message)
+        viewModel.clearSeedingState()
     }
 
     // Confirmation dialog — shown before any data is permanently deleted.
@@ -148,6 +166,19 @@ fun SessionHistoryScreen(
                     navigationIcon = {
                         IconButton(onClick = onNavigateBack) {
                             Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                        }
+                    },
+                    actions = {
+                        // Seed button: only compiled into debug builds
+                        if (BuildConfig.DEBUG) {
+                            TextButton(
+                                onClick = { viewModel.seedSyntheticSessions() },
+                                enabled = seedingState !is SeedingState.InProgress
+                            ) {
+                                Text(
+                                    if (seedingState is SeedingState.InProgress) "Seeding..." else "Seed"
+                                )
+                            }
                         }
                     }
                 )
@@ -235,11 +266,34 @@ private fun SessionCard(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text(
-                    text = formatDateTime(session.startTimeMs),
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.SemiBold
-                )
+                // Date + optional SYN tag side by side
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Text(
+                        text = formatDateTime(session.startTimeMs),
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    if (session.notes == "synthetic") {
+                        // Small teal chip so synthetic sessions are instantly recognisable
+                        Box(
+                            modifier = Modifier
+                                .background(
+                                    color = Color(0xFF00897B),
+                                    shape = RoundedCornerShape(4.dp)
+                                )
+                                .padding(horizontal = 5.dp, vertical = 1.dp)
+                        ) {
+                            Text(
+                                text = "SYN",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = Color.White
+                            )
+                        }
+                    }
+                }
                 // Sessions without an end time were interrupted (e.g. app crash).
                 if (session.endTimeMs == null) {
                     Text(
@@ -378,5 +432,14 @@ private val previewSessions = listOf(
         totalCalories    = 0f,
         avgBpm           = 0f,
         notes            = ""
+    ),
+    Session(
+        id = 4,
+        startTimeMs      = 1_742_700_000_000L,
+        endTimeMs        = 1_742_700_000_000L + 35 * 60 * 1000L,
+        targetDurationMs = 35 * 60_000L,
+        totalCalories    = 312.4f,
+        avgBpm           = 147f,
+        notes            = "synthetic"
     )
 )

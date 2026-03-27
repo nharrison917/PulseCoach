@@ -81,7 +81,7 @@ Projection only activates after **10 minutes** of recording.
 
 ---
 
-## Stage 2 — Synthetic seeder
+## Stage 2 — Synthetic seeder (complete)
 
 ### SyntheticSessionGenerator — HR curve model
 
@@ -126,7 +126,7 @@ All sessions use the user's saved `UserProfile` so calories are personalized.
 
 ---
 
-## Stage 3 — Phase 3b: Historical blend
+## Stage 3 — Phase 3b: Historical blend (COMPLETE)
 
 ### HistoricalAverager
 
@@ -148,7 +148,7 @@ All sessions use the user's saved `UserProfile` so calories are personalized.
 
 ---
 
-## Stage 4 — Evaluation screen (debug builds only, `BuildConfig.DEBUG`)
+## Stage 4 — Evaluation screen (debug builds only, `BuildConfig.DEBUG`) ← NEXT
 
 ### EvaluationViewModel
 
