@@ -2,6 +2,7 @@ package com.pulsecoach
 
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.activity.SystemBarStyle
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.material3.MaterialTheme
@@ -23,7 +24,15 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        enableEdgeToEdge()
+        // SystemBarStyle.light forces dark (black) status bar icons.
+        // The default SystemBarStyle.auto() picks icon color from the *system* dark-mode
+        // setting, not the app's background — causing white-on-white on some devices.
+        enableEdgeToEdge(
+            statusBarStyle = SystemBarStyle.light(
+                scrim = android.graphics.Color.TRANSPARENT,
+                darkScrim = android.graphics.Color.TRANSPARENT
+            )
+        )
 
         // Check first-launch flag before rendering anything.
         // SharedPreferences.getBoolean is synchronous and safe on the main thread

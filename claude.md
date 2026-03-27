@@ -23,8 +23,8 @@ com.pulsecoach/
   repository/   Data access layer (BLE + Room)
   data/         Room entities, DAOs, Database
   ble/          Polar SDK wrapper and HR stream logic
-  model/        Pure data classes (Session, HRSample, ZoneConfig)
-  util/         Calorie formula, zone calculator, CSV exporter
+  model/        Pure data classes (Session, HrSample, HrReading, ZoneConfig, UserProfile)
+  util/         CalorieCalculator, ZoneCalculator, CsvExporter
 State Management
 Use StateFlow and collectAsState() in Compose. Avoid LiveData — StateFlow is the current standard.
 
@@ -55,6 +55,7 @@ cal/min = (-55.0969 + 0.6309*HR + 0.1988*weight_kg + 0.2017*age) / 4.184
 Female formula
 cal/min = (-20.4022 + 0.4472*HR - 0.1263*weight_kg + 0.074*age) / 4.184
 Clamp output to >= 0. Do not apply this formula below HR = 90 bpm (unreliable range).
+Each H10 sample covers 1 second = 1/60 minute; use CalorieCalculator.calPerSample() to accumulate.
 
 Zone Logic
 Zones are user-defined. ZoneConfig is stored in Room. The defaults below are suggestions only — the user may change them:
@@ -66,16 +67,17 @@ Zones are user-defined. ZoneConfig is stored in Room. The defaults below are sug
 Zone colors: use a consistent palette. Suggested: Z1=#80B4FF, Z2=#80E27E, Z3=#FFD54F, Z4=#FF8A65, Z5=#EF5350
 
 Data Storage
-•	Room database: PulseCoachDatabase (version 1, increment on schema change with migration).
+•	Room database: PulseCoachDatabase (version 2, increment on schema change with migration).
 •	Tables: sessions, hr_samples, zone_config.
 •	User profile (age, weight, sex): SharedPreferences, not Room.
 •	Never delete session data without explicit user confirmation.
+•	Storage estimate: ~150 KB per 30-minute session in Room; ~90 KB as CSV export.
 
 CSV Export Format
 Export one file per session. Filename format: pulsecoach_YYYYMMDD_HHMMSS.csv
 Required columns:
 timestamp_ms, bpm, zone, cal_per_min, cumulative_cal
-Write to the Downloads folder using MediaStore API (Android 10+).
+Write to the Downloads folder using MediaStore API (Android 10+). Pre-API-29 devices get a graceful error message — do not add WRITE_EXTERNAL_STORAGE complexity.
 
 Projection Engine (Phase 3)
 Build in two sub-phases:
@@ -90,9 +92,10 @@ Phase 3b — Historical weighting
 Do not implement Phase 3b until Phase 3a is working and tested.
 
 Testing Strategy
-•	Unit test the calorie formula and zone calculator — these are pure functions, easy to test.
+•	CalorieCalculator and ZoneCalculator are covered by JVM unit tests in src/test/. Run with ./gradlew test (no device needed).
+•	JUnit 4 dependency: testImplementation("junit:junit:4.13.2") — already in build.gradle.kts.
 •	Use a mock BLE data source (emitting fake HR values on a timer) for UI testing without hardware.
-•	Do not write UI instrumentation tests until Phase 2 is complete.
+•	UI instrumentation tests are unblocked if needed now that Phase 2 is complete.
 
 Code Style
 •	Kotlin idioms preferred: use data classes, sealed classes for state, extension functions for utilities.
@@ -111,26 +114,34 @@ SDK Gotchas (hard-won — read before touching these APIs)
 Vico 2.0.0-beta.3
 •	ShapeComponent constructor: use ShapeComponent(fill = Fill(color.toArgb())) — there is no color parameter. Fill wraps an ARGB int. Import: com.patrykandpatrick.vico.core.common.Fill
 •	HorizontalLayout does not exist in this version. Do not import or use it.
-•	HorizontalBox is the correct class for zone band decorations on the chart.
+•	HorizontalBox exists but DO NOT use it for zone band decorations. Vico does not clip decoration draws to the chart canvas in this version — any HorizontalBox with y bounds outside the visible range will paint over UI elements above and below the chart. Zone context is provided by the ZoneStrip composable below the chart instead.
+•	CartesianLayerRangeProvider is in com.patrykandpatrick.vico.core.cartesian.data (not .layer). Use CartesianLayerRangeProvider.fixed(minY = 50.0) to set a y-axis floor. The fixed() parameters are nullable Double? (not Double with NaN).
+•	CartesianValueFormatter is a fun interface in com.patrykandpatrick.vico.core.cartesian.data — pass a lambda directly: CartesianValueFormatter { _, value, _ -> "${value.toInt()}" }
+•	rememberLine is a Composable extension on LineCartesianLayer.Companion, defined in com.patrykandpatrick.vico.compose.cartesian.layer. Call it as LineCartesianLayer.rememberLine(fill = ...). Import: import com.patrykandpatrick.vico.compose.cartesian.layer.rememberLine
+•	LineFill.single(fill(color)) is the correct constructor — NOT LineFill.Solid(...). The fill() helper is in com.patrykandpatrick.vico.compose.common and wraps a Compose Color into a core Fill object.
+•	Multi-series with different x ranges: use series(x = listOf(...), y = listOf(...)) with explicit x values. Both series in one LineCartesianLayer with LineProvider.series(line0, line1) — series index maps to line style.
+•	x values must have at most 4 decimal places of precision (Vico validates via getXDeltaGcd). NEVER use fractional offsets like + 0.01f as dummy x values — IEEE 754 float representation of 0.01 is imprecise and will trigger IllegalArgumentException. Use whole-number offsets like + 1f instead (integers are always exact in float).
+•	Axis label TextComponent: rememberTextComponent does NOT exist in com.patrykandpatrick.vico.compose.common for this version. Use TextComponent directly from com.patrykandpatrick.vico.core.common.component.TextComponent. Pass an ARGB int, not a Compose Color: val onSurface = MaterialTheme.colorScheme.onSurface.toArgb(); val axisLabel = remember(onSurface) { TextComponent(color = onSurface) }
 
 Polar BLE SDK 5.4.0
 •	PolarBleApiCallback.deviceDisconnected takes ONE parameter (polarDeviceInfo: PolarDeviceInfo). There is no reason: Int second parameter in this version. Adding it causes a compile error.
+•	PolarHrSample.contactStatus is frequently false during normal H10 wear even when readings are valid. Do not surface it as a user-facing warning — the BPM updating is the real indicator of contact.
 
 Material XML Theme
 •	The app theme in res/values/themes.xml uses Theme.Material3.DayNight.NoActionBar. This requires the com.google.android.material:material:1.12.0 library even though the rest of the UI is Compose. Without it, processDebugResources fails.
 
 Current Phase
-Phase 1 — COMPLETE. All Phase 1 checklist items in README.md are checked off.
+Phase 1 — COMPLETE.
+Phase 2 — COMPLETE (all core + all polish items including multi-select delete).
+Phase 3 — IN PROGRESS. Stage 1 (Phase 3a) complete.
 
-Phase 2 — Session Recording. Focus on:
-•	User profile setup (age, weight, sex) — stored in SharedPreferences
-•	Keytel calorie formula (see Calorie Calculation section above)
-•	Session start/stop recording — writes to Room (sessions + hr_samples tables)
-•	Cal/min live graph alongside HR graph
-•	Session history list screen
-•	CSV export to Downloads folder (MediaStore API)
+Phase 2 Polish — COMPLETE (all items done).
 
-Known issues carried forward from Phase 1 (fix at Phase 2 start):
-•	Chart y-axis auto-ranges — set a fixed floor (~50 bpm) so zone bands don't look cramped.
-•	BPM font uses fontSize * 2 multiplier — replace with an explicit sp value.
+Phase 3 — Projection Engine:
+Stage 1 (COMPLETE): PolynomialProjector + LiveCalorieChart + duration picker + 12 unit tests
+Stage 2 (next): SyntheticSessionGenerator → seed button (debug) → SYN tag on history cards
+Stage 3: HistoricalAverager → blend logic (0.4 poly + 0.6 historical) → qualifying session filter
+Stage 4: EvaluationViewModel + EvaluationScreen (debug only) → MAE/MAPE accuracy charts
+
+Known issues carried forward:
 •	No BLE reconnection logic — user must scan again after a signal drop.

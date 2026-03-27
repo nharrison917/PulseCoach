@@ -10,8 +10,10 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -20,23 +22,26 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -52,7 +57,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -97,16 +101,20 @@ fun LiveSessionScreen(
         permissionsGranted = result.values.all { it }
     }
 
-    val connectionState     by viewModel.connectionState.collectAsStateWithLifecycle()
-    val foundDevices        by viewModel.foundDevices.collectAsStateWithLifecycle()
-    val latestHr            by viewModel.latestHr.collectAsStateWithLifecycle()
-    val currentZone         by viewModel.currentZone.collectAsStateWithLifecycle()
-    val hrHistory           by viewModel.hrHistory.collectAsStateWithLifecycle()
-    val calPerMinute        by viewModel.currentCalPerMinute.collectAsStateWithLifecycle()
-    val isRecording         by viewModel.isRecording.collectAsStateWithLifecycle()
-    val totalCalories       by viewModel.sessionTotalCalories.collectAsStateWithLifecycle()
-    val sessionAvgBpm       by viewModel.sessionAvgBpm.collectAsStateWithLifecycle()
-    val sessionAvgCalPerMin by viewModel.sessionAvgCalPerMinute.collectAsStateWithLifecycle()
+    val connectionState       by viewModel.connectionState.collectAsStateWithLifecycle()
+    val foundDevices          by viewModel.foundDevices.collectAsStateWithLifecycle()
+    val latestHr              by viewModel.latestHr.collectAsStateWithLifecycle()
+    val currentZone           by viewModel.currentZone.collectAsStateWithLifecycle()
+    val hrHistory             by viewModel.hrHistory.collectAsStateWithLifecycle()
+    val calPerMinute          by viewModel.currentCalPerMinute.collectAsStateWithLifecycle()
+    val isRecording           by viewModel.isRecording.collectAsStateWithLifecycle()
+    val totalCalories         by viewModel.sessionTotalCalories.collectAsStateWithLifecycle()
+    val sessionAvgBpm         by viewModel.sessionAvgBpm.collectAsStateWithLifecycle()
+    val sessionAvgCalPerMin   by viewModel.sessionAvgCalPerMinute.collectAsStateWithLifecycle()
+    val sessionElapsedSeconds by viewModel.sessionElapsedSeconds.collectAsStateWithLifecycle()
+    val targetDuration        by viewModel.targetDurationMinutes.collectAsStateWithLifecycle()
+    val actualCalorieCurve    by viewModel.actualCalorieCurve.collectAsStateWithLifecycle()
+    val projectedCalorie      by viewModel.projectedCalorieCurve.collectAsStateWithLifecycle()
 
     Scaffold(
         topBar = {
@@ -158,6 +166,11 @@ fun LiveSessionScreen(
                             sessionTotalCalories = totalCalories,
                             sessionAvgBpm = sessionAvgBpm,
                             sessionAvgCalPerMinute = sessionAvgCalPerMin,
+                            sessionElapsedSeconds = sessionElapsedSeconds,
+                            targetDurationMinutes = targetDuration,
+                            actualCalorieCurve = actualCalorieCurve,
+                            projectedCalorieCurve = projectedCalorie,
+                            onTargetDurationChange = viewModel::setTargetDuration,
                             onStartRecording = viewModel::startRecording,
                             onStopRecording = viewModel::stopRecording,
                             onDisconnectClick = { viewModel.disconnect(state.deviceId) }
@@ -314,62 +327,41 @@ private fun ConnectedContent(
     sessionTotalCalories: Float,
     sessionAvgBpm: Float,
     sessionAvgCalPerMinute: Float,
+    sessionElapsedSeconds: Int,
+    targetDurationMinutes: Int,
+    actualCalorieCurve: List<Pair<Float, Float>>,
+    projectedCalorieCurve: List<Pair<Float, Float>>?,
+    onTargetDurationChange: (Int) -> Unit,
     onStartRecording: () -> Unit,
     onStopRecording: () -> Unit,
     onDisconnectClick: () -> Unit
 ) {
     val zoneColor = ZoneCalculator.colorForZone(zone)
-    val textColor = ZoneCalculator.textColorForZone(zone)
     val zoneName  = ZoneCalculator.nameForZone(zone)
 
-    Column(modifier = Modifier.fillMaxSize()) {
+    // verticalScroll allows the content to scroll on small screens. fillMaxWidth (not
+    // fillMaxSize) lets the column size to its content rather than filling all height.
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .verticalScroll(rememberScrollState())
+    ) {
 
-        // Zone color banner — fills available space above the chart
-        Box(
+        // Stats card — zone accent bar on the left, 3×2 data grid, zone name footer
+        StatsCard(
+            hr = hr,
+            zoneColor = zoneColor,
+            zoneName = zoneName,
+            calPerMinute = calPerMinute,
+            isRecording = isRecording,
+            sessionAvgBpm = sessionAvgBpm,
+            sessionAvgCalPerMinute = sessionAvgCalPerMinute,
+            sessionElapsedSeconds = sessionElapsedSeconds,
+            sessionTotalCalories = sessionTotalCalories,
             modifier = Modifier
                 .fillMaxWidth()
-                .weight(1f)
-                .background(zoneColor),
-            contentAlignment = Alignment.Center
-        ) {
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                if (hr == null) {
-                    CircularProgressIndicator(color = textColor)
-                    Spacer(Modifier.height(8.dp))
-                    Text("Waiting for HR data...", color = textColor)
-                } else {
-                    // Fixed sp value — the previous `fontSize * 2` worked but was fragile
-                    // (it multiplied a TextUnit by a Float, breaking if the base size changed)
-                    Text(
-                        text = "${hr.bpm}",
-                        style = MaterialTheme.typography.displayLarge.copy(
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 96.sp
-                        ),
-                        color = textColor
-                    )
-                    Text(
-                        text = "bpm",
-                        style = MaterialTheme.typography.headlineMedium,
-                        color = textColor.copy(alpha = 0.8f)
-                    )
-                    Spacer(Modifier.height(4.dp))
-                    Text(
-                        text = zoneName,
-                        style = MaterialTheme.typography.titleLarge,
-                        color = textColor
-                    )
-                    Spacer(Modifier.height(8.dp))
-                    // Cal/min is always shown once HR is live — gives feedback even before recording.
-                    // Shows 0.0 when HR is below 90 bpm (formula unreliable range).
-                    Text(
-                        text = "%.1f cal/min".format(calPerMinute),
-                        style = MaterialTheme.typography.titleMedium,
-                        color = textColor.copy(alpha = 0.85f)
-                    )
-                }
-            }
-        }
+                .padding(horizontal = 8.dp, vertical = 8.dp)
+        )
 
         // Live HR chart
         if (hrHistory.size >= 2) {
@@ -385,40 +377,27 @@ private fun ConnectedContent(
         // Zone indicator strip
         ZoneStrip(currentZone = zone, modifier = Modifier.fillMaxWidth().height(48.dp))
 
-        // Recording status row — only visible while a session is active
-        if (isRecording) {
-            Row(
+        // Calorie chart — only shown while recording and once 2+ data points exist
+        if (isRecording && actualCalorieCurve.size >= 2) {
+            LiveCalorieChart(
+                actualPoints = actualCalorieCurve,
+                projectedPoints = projectedCalorieCurve,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 6.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                // Left: red dot + "Recording" label
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Box(
-                        modifier = Modifier
-                            .size(10.dp)
-                            .background(Color(0xFFEF5350), CircleShape)
-                    )
-                    Spacer(Modifier.width(6.dp))
-                    Text(
-                        "Recording",
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.onSurface
-                    )
-                }
+                    .height(160.dp)
+                    .padding(horizontal = 8.dp, vertical = 4.dp)
+            )
+        }
 
-                // Right: three live running stats
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    StatChip(label = "total", value = "%.1f cal".format(sessionTotalCalories))
-                    StatChip(label = "avg bpm", value = "${sessionAvgBpm.toInt()}")
-                    StatChip(label = "avg cal/min", value = "%.1f".format(sessionAvgCalPerMinute))
-                }
-            }
+        // Duration picker — shown only before recording starts
+        if (!isRecording) {
+            DurationPicker(
+                selectedMinutes = targetDurationMinutes,
+                onSelect = onTargetDurationChange,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 4.dp)
+            )
         }
 
         // Bottom action bar
@@ -441,7 +420,7 @@ private fun ConnectedContent(
                 Button(
                     onClick = onStopRecording,
                     colors = ButtonDefaults.buttonColors(
-                        containerColor = Color(0xFFEF5350) // red while recording
+                        containerColor = Color(0xFFEF5350)
                     )
                 ) {
                     Text("Stop")
@@ -461,23 +440,139 @@ private fun ConnectedContent(
 }
 
 /**
- * Compact two-line label used in the recording stats row.
- * Top line is the value (prominent), bottom line is the label (muted).
+ * Compact stats card with a zone-colored accent bar on the left edge.
+ *
+ * The 3×2 grid shows: Current BPM / cal/min, Avg BPM / avg cal/min,
+ * Time Elapsed / Total Cal. Stats that only apply during recording show "--"
+ * when idle so the layout never shifts.
+ *
+ * IntrinsicSize.Min on the Row lets the accent bar use fillMaxHeight() to
+ * match the Column's natural height — the standard Compose pattern for this.
  */
 @Composable
-private fun StatChip(label: String, value: String) {
-    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-        Text(
-            text = value,
-            style = MaterialTheme.typography.labelLarge,
-            fontWeight = FontWeight.Medium,
-            color = MaterialTheme.colorScheme.onSurface
-        )
+private fun StatsCard(
+    hr: HrReading?,
+    zoneColor: Color,
+    zoneName: String,
+    calPerMinute: Float,
+    isRecording: Boolean,
+    sessionAvgBpm: Float,
+    sessionAvgCalPerMinute: Float,
+    sessionElapsedSeconds: Int,
+    sessionTotalCalories: Float,
+    modifier: Modifier = Modifier
+) {
+    Card(
+        modifier = modifier,
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+    ) {
+        Row(modifier = Modifier.fillMaxWidth().height(IntrinsicSize.Min)) {
+            // Zone color accent bar
+            Box(
+                modifier = Modifier
+                    .width(6.dp)
+                    .fillMaxHeight()
+                    .background(zoneColor)
+            )
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .padding(horizontal = 12.dp, vertical = 10.dp)
+            ) {
+                val bpmText     = hr?.bpm?.toString() ?: "--"
+                val calText     = "%.1f".format(calPerMinute)
+                val avgBpmText  = if (isRecording) "${sessionAvgBpm.toInt()}" else "--"
+                val avgCalText  = if (isRecording) "%.1f".format(sessionAvgCalPerMinute) else "--"
+                val elapsedText = if (isRecording) formatElapsed(sessionElapsedSeconds) else "--"
+                val totalCalText = if (isRecording) "%.1f".format(sessionTotalCalories) else "--"
+
+                StatRow(
+                    leftLabel = "Current BPM",  leftValue = bpmText,
+                    rightLabel = "cal/min",      rightValue = calText
+                )
+                StatRow(
+                    leftLabel = "Avg BPM",       leftValue = avgBpmText,
+                    rightLabel = "Avg cal/min",  rightValue = avgCalText
+                )
+                StatRow(
+                    leftLabel = "Time Elapsed",  leftValue = elapsedText,
+                    rightLabel = "Total Cal",    rightValue = totalCalText
+                )
+
+                HorizontalDivider(modifier = Modifier.padding(vertical = 6.dp))
+
+                // Zone name in zone color — carries the zone context without a full banner
+                Text(
+                    text = zoneName,
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.SemiBold,
+                    color = zoneColor
+                )
+            }
+        }
+    }
+}
+
+/** One row of the stats grid — two labeled values side by side. */
+@Composable
+private fun StatRow(
+    leftLabel: String, leftValue: String,
+    rightLabel: String, rightValue: String
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 2.dp)
+    ) {
+        StatCell(label = leftLabel, value = leftValue, modifier = Modifier.weight(1f))
+        StatCell(label = rightLabel, value = rightValue, modifier = Modifier.weight(1f))
+    }
+}
+
+/** Label (small, muted) stacked above a value (medium weight). */
+@Composable
+private fun StatCell(label: String, value: String, modifier: Modifier = Modifier) {
+    Column(modifier = modifier) {
         Text(
             text = label,
-            style = MaterialTheme.typography.labelSmall,
+            style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
+        Text(
+            text = value,
+            style = MaterialTheme.typography.titleLarge,
+            fontWeight = FontWeight.SemiBold
+        )
+    }
+}
+
+/**
+ * Three filter chips for selecting target session duration before recording.
+ * Only the selected chip is filled; the others are outlined.
+ */
+@Composable
+private fun DurationPicker(
+    selectedMinutes: Int,
+    onSelect: (Int) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Row(
+        modifier = modifier,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(
+            text = "Target:",
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        listOf(30, 45, 60).forEach { minutes ->
+            FilterChip(
+                selected = selectedMinutes == minutes,
+                onClick = { onSelect(minutes) },
+                label = { Text("${minutes}m") }
+            )
+        }
     }
 }
 
@@ -528,6 +623,13 @@ private fun ErrorContent(message: String, onRetryClick: () -> Unit) {
     }
 }
 
+/** Formats a second count as "M:SS" (e.g. 143 → "2:23"). */
+private fun formatElapsed(seconds: Int): String {
+    val m = seconds / 60
+    val s = seconds % 60
+    return "%d:%02d".format(m, s)
+}
+
 // ── Previews ──────────────────────────────────────────────────────────────────
 
 @Preview(showBackground = true)
@@ -568,6 +670,11 @@ private fun PreviewConnectedIdle() {
             sessionTotalCalories = 0f,
             sessionAvgBpm = 0f,
             sessionAvgCalPerMinute = 0f,
+            sessionElapsedSeconds = 0,
+            targetDurationMinutes = 45,
+            actualCalorieCurve = emptyList(),
+            projectedCalorieCurve = null,
+            onTargetDurationChange = {},
             onStartRecording = {},
             onStopRecording = {},
             onDisconnectClick = {}
@@ -592,6 +699,11 @@ private fun PreviewConnectedRecording() {
             sessionTotalCalories = 87.3f,
             sessionAvgBpm = 161f,
             sessionAvgCalPerMinute = 10.8f,
+            sessionElapsedSeconds = 1386,
+            targetDurationMinutes = 45,
+            actualCalorieCurve = (0..15).map { i -> i.toFloat() to (i * 9f + 0.05f * i * i) },
+            projectedCalorieCurve = null,
+            onTargetDurationChange = {},
             onStartRecording = {},
             onStopRecording = {},
             onDisconnectClick = {}

@@ -72,6 +72,16 @@ class SessionRepository(
     suspend fun getSamplesForSessionOnce(sessionId: Long): List<HrSample> =
         hrSampleDao.getSamplesForSessionOnce(sessionId).map { it.toDomain() }
 
+    /**
+     * Permanently deletes sessions and all their HR samples.
+     * Samples are deleted first because they reference sessions by ID.
+     */
+    suspend fun deleteSessions(ids: Set<Long>) {
+        val idList = ids.toList()
+        hrSampleDao.deleteBySessionIds(idList)
+        sessionDao.deleteByIds(idList)
+    }
+
     // --- Private mapping helpers ---
 
     // Extension functions on the entity class, kept private to this file.

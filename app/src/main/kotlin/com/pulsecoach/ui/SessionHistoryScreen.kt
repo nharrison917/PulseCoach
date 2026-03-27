@@ -1,5 +1,9 @@
 package com.pulsecoach.ui
 
+import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -12,6 +16,11 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -25,11 +34,14 @@ import androidx.compose.material3.Snackbar
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
@@ -46,9 +58,9 @@ import java.util.Date
 import java.util.Locale
 
 /**
- * Screen listing all completed and in-progress sessions, newest first.
- * Export is handled internally — the ViewModel writes to MediaStore and
- * reports back via [SessionHistoryViewModel.exportResult].
+ * Screen listing all completed and incomplete sessions, newest first.
+ * Long-pressing any card enters multi-select mode; a trash icon in the top bar
+ * triggers a confirmation dialog before permanently deleting selected sessions.
  *
  * @param onNavigateBack Called when the user taps the back arrow.
  */
@@ -58,15 +70,22 @@ fun SessionHistoryScreen(
     onNavigateBack: () -> Unit,
     viewModel: SessionHistoryViewModel = viewModel()
 ) {
-    val sessions by viewModel.sessions.collectAsStateWithLifecycle()
+    val sessions     by viewModel.sessions.collectAsStateWithLifecycle()
     val exportResult by viewModel.exportResult.collectAsStateWithLifecycle()
+    val selectedIds  by viewModel.selectedIds.collectAsStateWithLifecycle()
 
-    // SnackbarHostState is the bridge between our code and the SnackbarHost in the Scaffold.
-    // We hold one instance for the lifetime of this composable.
+    // Derived from selectedIds — drives which top bar and card interactions are shown.
+    val isInSelectionMode = selectedIds.isNotEmpty()
+
+    var showDeleteConfirmation by remember { mutableStateOf(false) }
     val snackbarHostState = remember { SnackbarHostState() }
 
-    // When exportResult changes to a non-null value, show a snackbar and then clear the state.
-    // LaunchedEffect re-runs whenever exportResult changes.
+    // While in selection mode, intercept the system back button to clear the selection
+    // instead of navigating away. Standard Android pattern for multi-select screens.
+    BackHandler(enabled = isInSelectionMode) {
+        viewModel.clearSelection()
+    }
+
     LaunchedEffect(exportResult) {
         val result = exportResult ?: return@LaunchedEffect
         val message = when (result) {
@@ -77,20 +96,64 @@ fun SessionHistoryScreen(
         viewModel.clearExportResult()
     }
 
+    // Confirmation dialog — shown before any data is permanently deleted.
+    if (showDeleteConfirmation) {
+        val count = selectedIds.size
+        AlertDialog(
+            onDismissRequest = { showDeleteConfirmation = false },
+            title = { Text("Delete Sessions") },
+            text = {
+                Text(
+                    "Delete $count session${if (count == 1) "" else "s"}? " +
+                    "All recorded data will be permanently removed."
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        viewModel.deleteSelected()
+                        showDeleteConfirmation = false
+                    },
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.error
+                    )
+                ) { Text("Delete") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDeleteConfirmation = false }) { Text("Cancel") }
+            }
+        )
+    }
+
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = { Text("Session History") },
-                navigationIcon = {
-                    IconButton(onClick = onNavigateBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+            if (isInSelectionMode) {
+                // Selection mode: show count and action icons instead of the normal title.
+                TopAppBar(
+                    title = { Text("${selectedIds.size} selected") },
+                    navigationIcon = {
+                        IconButton(onClick = { viewModel.clearSelection() }) {
+                            Icon(Icons.Default.Close, contentDescription = "Clear selection")
+                        }
+                    },
+                    actions = {
+                        IconButton(onClick = { showDeleteConfirmation = true }) {
+                            Icon(Icons.Default.Delete, contentDescription = "Delete selected")
+                        }
                     }
-                }
-            )
+                )
+            } else {
+                TopAppBar(
+                    title = { Text("Session History") },
+                    navigationIcon = {
+                        IconButton(onClick = onNavigateBack) {
+                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                        }
+                    }
+                )
+            }
         },
         snackbarHost = {
-            // SnackbarHost renders snackbars at the bottom of the screen automatically.
-            // We supply a custom Snackbar so it inherits Material3 styling.
             SnackbarHost(hostState = snackbarHostState) { data ->
                 Snackbar(snackbarData = data)
             }
@@ -110,6 +173,9 @@ fun SessionHistoryScreen(
                 items(sessions, key = { it.id }) { session ->
                     SessionCard(
                         session = session,
+                        isSelected = session.id in selectedIds,
+                        isInSelectionMode = isInSelectionMode,
+                        onToggleSelect = { viewModel.toggleSelection(session.id) },
                         onExportClick = { viewModel.exportToCsv(session.id) }
                     )
                 }
@@ -137,11 +203,30 @@ private fun EmptyHistoryContent(modifier: Modifier = Modifier) {
     }
 }
 
+/**
+ * Card showing session summary. Long-pressing enters selection mode;
+ * tapping while in selection mode toggles the card's selected state.
+ * The Export button is hidden during selection mode to avoid accidental taps.
+ */
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun SessionCard(session: Session, onExportClick: () -> Unit) {
+private fun SessionCard(
+    session: Session,
+    isSelected: Boolean,
+    isInSelectionMode: Boolean,
+    onToggleSelect: () -> Unit,
+    onExportClick: () -> Unit
+) {
+    // Selected cards get a primary-color border so the selection is immediately obvious.
     Card(
-        modifier = Modifier.fillMaxWidth(),
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+        modifier = Modifier
+            .fillMaxWidth()
+            .combinedClickable(
+                onClick = { if (isInSelectionMode) onToggleSelect() },
+                onLongClick = onToggleSelect
+            ),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+        border = if (isSelected) BorderStroke(2.dp, MaterialTheme.colorScheme.primary) else null
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
 
@@ -155,11 +240,12 @@ private fun SessionCard(session: Session, onExportClick: () -> Unit) {
                     style = MaterialTheme.typography.titleSmall,
                     fontWeight = FontWeight.SemiBold
                 )
+                // Sessions without an end time were interrupted (e.g. app crash).
                 if (session.endTimeMs == null) {
                     Text(
-                        text = "In progress",
+                        text = "Incomplete",
                         style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.primary
+                        color = MaterialTheme.colorScheme.error
                     )
                 }
             }
@@ -186,7 +272,6 @@ private fun SessionCard(session: Session, onExportClick: () -> Unit) {
                         style = MaterialTheme.typography.bodyLarge,
                         fontWeight = FontWeight.Medium
                     )
-                    // Derived stats — no schema change needed
                     val durationMinutes = session.endTimeMs?.let {
                         (it - session.startTimeMs) / 60_000f
                     }
@@ -203,9 +288,8 @@ private fun SessionCard(session: Session, onExportClick: () -> Unit) {
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
-                // Export only available for completed sessions — in-progress ones
-                // don't have a finalized totalCalories/avgBpm written yet.
-                if (session.endTimeMs != null) {
+                // Export is only available for completed sessions and only outside selection mode.
+                if (session.endTimeMs != null && !isInSelectionMode) {
                     OutlinedButton(
                         onClick = onExportClick,
                         modifier = Modifier.height(36.dp)
@@ -228,10 +312,10 @@ private fun formatDateTime(epochMs: Long): String {
 
 /**
  * Returns a human-readable duration string.
- * Returns a placeholder if [endMs] is null (session still in progress).
+ * Returns "Incomplete" if [endMs] is null (session was not stopped cleanly).
  */
 private fun formatDuration(startMs: Long, endMs: Long?): String {
-    if (endMs == null) return "Started — not yet stopped"
+    if (endMs == null) return "Incomplete"
     val totalSeconds = ((endMs - startMs) / 1000).coerceAtLeast(0)
     val minutes = totalSeconds / 60
     val seconds = totalSeconds % 60
@@ -249,7 +333,13 @@ private fun PreviewHistoryList() {
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             items(previewSessions) { session ->
-                SessionCard(session = session, onExportClick = {})
+                SessionCard(
+                    session = session,
+                    isSelected = session.id == 2L,
+                    isInSelectionMode = true,
+                    onToggleSelect = {},
+                    onExportClick = {}
+                )
             }
         }
     }

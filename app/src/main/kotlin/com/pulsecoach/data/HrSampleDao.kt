@@ -32,4 +32,8 @@ interface HrSampleDao {
      */
     @Query("SELECT * FROM hr_samples WHERE sessionId = :sessionId ORDER BY timestampMs ASC")
     suspend fun getSamplesForSessionOnce(sessionId: Long): List<HrSampleEntity>
+
+    /** Delete all HR samples belonging to the given session IDs. Called before deleting sessions. */
+    @Query("DELETE FROM hr_samples WHERE sessionId IN (:sessionIds)")
+    suspend fun deleteBySessionIds(sessionIds: List<Long>)
 }

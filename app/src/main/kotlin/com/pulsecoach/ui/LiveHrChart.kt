@@ -7,8 +7,10 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import com.patrykandpatrick.vico.core.common.component.TextComponent
 import com.patrykandpatrick.vico.compose.cartesian.CartesianChartHost
 import com.patrykandpatrick.vico.compose.cartesian.axis.rememberBottom
 import com.patrykandpatrick.vico.compose.cartesian.axis.rememberStart
@@ -58,6 +60,12 @@ fun LiveHrChart(
         }
     }
 
+    // Explicit label component with a known-good ARGB color.
+    // Vico's default TextComponent color may not resolve correctly inside MaterialTheme
+    // without a custom color scheme, rendering invisible against the white background.
+    val onSurface = MaterialTheme.colorScheme.onSurface.toArgb()
+    val axisLabel = remember(onSurface) { TextComponent(color = onSurface) }
+
     CartesianChartHost(
         chart = rememberCartesianChart(
             rememberLineCartesianLayer(
@@ -67,11 +75,11 @@ fun LiveHrChart(
                 rangeProvider = CartesianLayerRangeProvider.fixed(minY = 50.0)
             ),
             startAxis = VerticalAxis.rememberStart(
-                // Show bpm values as integers on the y-axis
+                label = axisLabel,
                 valueFormatter = bpmFormatter
             ),
             bottomAxis = HorizontalAxis.rememberBottom(
-                // Show elapsed seconds on the x-axis (1 index = 1 reading ≈ 1 second)
+                label = axisLabel,
                 valueFormatter = secondsFormatter
             ),
         ),

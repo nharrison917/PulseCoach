@@ -46,6 +46,13 @@ class SessionHistoryViewModel(application: Application) : AndroidViewModel(appli
         )
 
     /**
+     * Set of session IDs currently selected for deletion.
+     * Non-empty means the screen is in selection mode.
+     */
+    private val _selectedIds = MutableStateFlow<Set<Long>>(emptySet())
+    val selectedIds: StateFlow<Set<Long>> = _selectedIds.asStateFlow()
+
+    /**
      * Most recent export result — null means idle (no pending result to show).
      * The screen resets this to null after displaying the snackbar.
      */
@@ -117,5 +124,29 @@ class SessionHistoryViewModel(application: Application) : AndroidViewModel(appli
     /** Called by the screen after it has displayed the export result snackbar. */
     fun clearExportResult() {
         _exportResult.value = null
+    }
+
+    /** Adds or removes a session from the selection set. */
+    fun toggleSelection(id: Long) {
+        val current = _selectedIds.value
+        _selectedIds.value = if (id in current) current - id else current + id
+    }
+
+    /** Exits selection mode without deleting anything. */
+    fun clearSelection() {
+        _selectedIds.value = emptySet()
+    }
+
+    /**
+     * Permanently deletes all selected sessions and their HR sample data.
+     * Room's Flow on getAllSessions() will emit the updated list automatically.
+     */
+    fun deleteSelected() {
+        val ids = _selectedIds.value
+        if (ids.isEmpty()) return
+        viewModelScope.launch {
+            repository.deleteSessions(ids)
+            _selectedIds.value = emptySet()
+        }
     }
 }

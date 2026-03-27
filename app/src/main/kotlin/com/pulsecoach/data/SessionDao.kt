@@ -40,4 +40,8 @@ interface SessionDao {
     /** Fetch a single session by ID for detail/export views. */
     @Query("SELECT * FROM sessions WHERE id = :id")
     suspend fun getSessionById(id: Long): SessionEntity?
+
+    /** Delete sessions by their IDs. Called during multi-select deletion. */
+    @Query("DELETE FROM sessions WHERE id IN (:ids)")
+    suspend fun deleteByIds(ids: List<Long>)
 }

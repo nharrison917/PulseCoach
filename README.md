@@ -60,11 +60,10 @@ CSV export of the same session is ~90 KB. 100 sessions ≈ 15 MB total.
 **Phase 2 Polish**
 - [x] Live session screen: running avg BPM and avg cal/min in recording stats row
 - [x] Session history cards: avg cal/min derived stat (totalCalories / durationMinutes)
-- [ ] Session history: multi-select delete with confirmation dialog
+- [x] Session history: multi-select delete with confirmation dialog
 
-**Known issues to address at Phase 3 start**
+**Known issues**
 - No BLE reconnection logic — user must scan again after a signal drop.
-- No session target duration input yet — needed as the endpoint for Phase 3 projection.
 
 ---
 
@@ -74,6 +73,7 @@ JVM tests (no device required) covering pure utility functions:
 
 - `CalorieCalculatorTest` — male/female Keytel formula against known values, sub-90 bpm guard, negative clamp, `calPerSample` relationship
 - `ZoneCalculatorTest` — every zone boundary at/above/below threshold, custom `ZoneConfig`, color opacity, name fallbacks
+- `PolynomialProjectorTest` — Gaussian elimination solver, quadratic fit recovery, guard conditions, monotonicity, known-quadratic accuracy
 
 Run with `./gradlew test`. Output at `app/build/reports/tests/testDebugUnitTest/index.html`.
 
@@ -81,11 +81,28 @@ Run with `./gradlew test`. Output at `app/build/reports/tests/testDebugUnitTest/
 
 ## Phase 3 — Projection Engine
 
-- [ ] Session target duration input (set before or at session start)
-- [ ] Phase 3a: polynomial fit to cumulative calorie curve → project to target end time
-- [ ] Phase 3a: display projection as dashed line extension on cal graph
-- [ ] Phase 3b: blend projection with historical session average (after 10+ sessions)
-- [ ] Developer tuning knobs for blend weights (debug builds only)
+**Stage 1 — Phase 3a: Polynomial projection (complete)**
+- [x] Target duration picker (30/45/60 min chips) on live session screen
+- [x] `PolynomialProjector` — degree-2 least-squares fit via Gaussian elimination; monotonicity fallback to linear; no external math library
+- [x] Cumulative calorie chart (`LiveCalorieChart`) — actual line (solid) + projected line (lighter opacity) using Vico
+- [x] Projection activates automatically after 10 minutes of recording data
+- [x] 12 unit tests for `PolynomialProjector` covering solver, guard conditions, and known-quadratic accuracy
+
+**Stage 2 — Synthetic seeder (next)**
+- [ ] `SyntheticSessionGenerator` — parameterized HR curves (logistic warm-up, Gaussian steady-state, exponential cooldown)
+- [ ] Seed button (debug builds only) writes 12 synthetic sessions to Room
+- [ ] "SYN" tag on history cards for synthetic sessions
+
+**Stage 3 — Phase 3b: Historical blend**
+- [ ] `HistoricalAverager` — per-minute average calorie curve across qualifying sessions
+- [ ] Blend: 0.4 × polynomial + 0.6 × historical; activates at 10+ qualifying sessions
+- [ ] Qualifying filter: completed, avg BPM > 100, duration > 10 min
+
+**Stage 4 — Evaluation screen (debug builds only)**
+- [ ] Generate held-out synthetic test sessions; feed first N minutes to projector
+- [ ] Overlay chart: projected vs actual curves
+- [ ] Accuracy vs elapsed time chart: MAE / MAPE at 5/10/15/20 min observation windows
+- [ ] Phase 3a vs 3b comparison table
 
 ---
 
@@ -98,8 +115,8 @@ app/src/main/kotlin/com/pulsecoach/
   model/        Pure data classes (HrReading, Session, HrSample, ZoneConfig, UserProfile)
   repository/   SessionRepository, ZoneConfigRepository, UserProfileRepository
   ui/           LiveSessionScreen, SessionHistoryScreen, ProfileSetupScreen,
-                SettingsScreen, LiveHrChart
-  util/         ZoneCalculator, CalorieCalculator, CsvExporter
+                SettingsScreen, LiveHrChart, LiveCalorieChart
+  util/         ZoneCalculator, CalorieCalculator, CsvExporter, PolynomialProjector
   viewmodel/    LiveSessionViewModel, SessionHistoryViewModel,
                 SettingsViewModel, ProfileViewModel
   MainActivity  NavHost — routes: live_session, settings, profile_setup,
