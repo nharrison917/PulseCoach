@@ -115,6 +115,15 @@ Token Efficiency (lessons from this project)
 •	Infer schema from mapping helpers. SessionRepository's toDomain() / toEntity() already shows every field — no need to also read the entity files.
 •	Check for existing usage before adding new APIs. Before importing BuildConfig, grep the codebase for it. No hits → check build.gradle.kts for the opt-in flag before writing any code.
 •	Write imports before code, not after. Discovering a missing import mid-implementation forces an extra edit round.
+•	State assumptions rather than asking. For low-stakes design choices (reactive vs one-shot query, timestamp-based vs field-based duration), state the assumption and proceed. Only stop to ask when the decision affects scope or is hard to reverse.
+•	Grep return types instead of reading whole files. To understand what a function returns, grep for "fun functionName" — the signature is almost always on one line. No need to read the full file.
+
+Key StateFlow grep targets (avoids full ViewModel reads):
+•	Recording state: _isRecording
+•	Projection output: _projectedCalorieCurve
+•	Calorie curve data: _actualCalorieCurve
+•	Target duration: _targetDurationMinutes
+•	Historical blend state: _qualifyingSessionCount, historicalCurve
 
 SDK Gotchas (hard-won — read before touching these APIs)
 Vico 2.0.0-beta.3

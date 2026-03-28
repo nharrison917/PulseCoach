@@ -74,6 +74,7 @@ import java.util.Locale
 @Composable
 fun SessionHistoryScreen(
     onNavigateBack: () -> Unit,
+    onNavigateToEvaluation: () -> Unit = {},
     viewModel: SessionHistoryViewModel = viewModel()
 ) {
     val sessions      by viewModel.sessions.collectAsStateWithLifecycle()
@@ -169,7 +170,7 @@ fun SessionHistoryScreen(
                         }
                     },
                     actions = {
-                        // Seed button: only compiled into debug builds
+                        // Seed and Evaluate buttons: only compiled into debug builds
                         if (BuildConfig.DEBUG) {
                             TextButton(
                                 onClick = { viewModel.seedSyntheticSessions() },
@@ -178,6 +179,9 @@ fun SessionHistoryScreen(
                                 Text(
                                     if (seedingState is SeedingState.InProgress) "Seeding..." else "Seed"
                                 )
+                            }
+                            TextButton(onClick = onNavigateToEvaluation) {
+                                Text("Evaluate")
                             }
                         }
                     }

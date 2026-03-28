@@ -10,6 +10,7 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import com.pulsecoach.repository.UserProfileRepository
+import com.pulsecoach.ui.EvaluationScreen
 import com.pulsecoach.ui.LiveSessionScreen
 import com.pulsecoach.ui.ProfileSetupScreen
 import com.pulsecoach.ui.SessionHistoryScreen
@@ -77,6 +78,13 @@ class MainActivity : ComponentActivity() {
 
                     composable("session_history") {
                         SessionHistoryScreen(
+                            onNavigateBack = { navController.popBackStack() },
+                            onNavigateToEvaluation = { navController.navigate("evaluation") }
+                        )
+                    }
+
+                    composable("evaluation") {
+                        EvaluationScreen(
                             onNavigateBack = { navController.popBackStack() }
                         )
                     }
