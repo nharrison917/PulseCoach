@@ -174,23 +174,6 @@ Results are computed separately for polynomial-only vs. blended projections, and
 
 ---
 
-## Resume Summary
-
-> "End-to-end analytics pipeline on a real-time BLE sensor stream: applied a published physiological regression model (Keytel 2005) for caloric estimation via 1Hz numerical integration; implemented in-session polynomial forecasting via closed-form normal equations and partial-pivoting Gaussian elimination; combined real-time and historical forecasts using weighted ensemble methods; applied stratified segmentation by session intent with a hierarchical data-sufficiency fallback; added a self-personalizing multiplicative bias correction via rolling mean of actual/projected ratios; quantified forecast uncertainty with proportional prediction intervals scaled by the sample standard deviation of past projection errors; evaluated accuracy via MAE/MAPE on held-out sessions. Implemented from scratch in Kotlin with no external math libraries."
-
-**What makes it analytically defensible:**
-- Every formula traces back to published methodology (Keytel 2005; Bates & Granger 1969 on forecast combination)
-- The monotonicity constraint and linear fallback show reasoning about model failure modes
-- The N ≥ 10 threshold and fallback ladder reflect awareness of small-sample risk
-- The correction factor uses Bessel's correction and an outlier guard — not naive averaging
-- The distinction between "correcting Keytel absolute error" vs. "learning personal deviation from own average trajectory" is explicit — the model knows what it is and isn't doing
-- The proportional band (σ × projection value) is the correct uncertainty structure for a multiplicative error model — not a fixed-width band
-- Hold-out evaluation with MAE/MAPE means accuracy was measured, not assumed
-
-**Honest scope:** This is not a production ML system. It applies the correct analytical concepts end-to-end on real hardware, with a genuine feedback loop between model output and measured accuracy.
-
----
-
 ## Projection Quality Levels — Trade-off Analysis
 
 ### Level 1 — Current Baseline
@@ -245,5 +228,3 @@ Degree-2 polynomial OLS + historical mean blend. Already implemented. Directiona
 **Pros:** Principled online learning; updates continuously with every sensor reading. Gold standard for real-time sensor fusion.
 **Cons:** Noise matrix tuning requires empirical calibration data not available here. Massive complexity increase for marginal gain in a 60-minute, 1Hz session context. Very easy to implement incorrectly.
 **Verdict:** Not recommended. Better left as a "future work" bullet.
-
-*Implementation plan moved to [PRJ_IMP_PLAN.md](PRJ_IMP_PLAN.md).*

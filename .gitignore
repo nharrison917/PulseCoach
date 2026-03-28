@@ -17,3 +17,18 @@ Thumbs.db
 
 # The wrapper jar IS committed — it's needed for ./gradlew to work without a Gradle install
 # gradle/wrapper/gradle-wrapper.jar  <-- intentionally NOT ignored
+
+# Signing keys
+*.jks
+*.keystore
+
+# Built outputs (binaries have no value in version control)
+*.apk
+*.aab
+app/release/
+
+# Android Studio profiler / memory captures
+captures/
+
+# Kotlin incremental compilation cache
+**/.kotlin/

@@ -10,9 +10,12 @@ Built with Kotlin + Jetpack Compose. Fully offline — no accounts, no cloud, no
 
 ---
 
-> 📸 **Screenshot opportunity:** app icon / hero shot — live session screen mid-workout,
-> showing zone banner, HR chart, calorie chart with projection line and confidence band,
-> and zone time summary bar.
+*I built this because I was doing long elliptical sessions and mentally tracking
+tracking and projecting the whole time, which gets harder the more you push. 
+Polar Flow's more useful features are paywalled, and little of what I actually wanted existed
+in a single tool: live and average calorie rates, a projection of where I'd end up given my
+current effort, and a model that learns from my own sessions rather than population averages. 
+This is that tool — and also a learning project in Android development and applied analytics.*
 
 ---
 
@@ -22,8 +25,8 @@ Connect your Polar H10, tap Start, and PulseCoach:
 
 - Streams heart rate at 1 Hz over BLE and classifies each reading into one of five
   configurable HR zones in real time
-- Estimates calorie burn per second using the Keytel et al. (2005) formula
-  (personalized to your age, weight, and sex)
+- Estimates calorie burn per second using the Keytel et al. (2005) formula,
+  personalized to your age, weight, and sex
 - After 10 minutes of recording, projects your cumulative calorie total to the end
   of your target session duration
 - Blends that projection with your personal training history for a more stable estimate
@@ -36,24 +39,33 @@ Sessions are saved to a local Room database. Export any session as a CSV to Down
 
 ---
 
+## Analytical Methods
+
+This project is also a portfolio piece demonstrating applied quantitative methods
+on real hardware. The projection engine is a four-layer pipeline:
+
+- **Physiological regression** — Keytel et al. (2005) formula accumulated via 1Hz
+  numerical integration (left Riemann sum)
+- **In-session forecasting** — degree-2 polynomial OLS fit via closed-form normal
+  equations, solved by Gaussian elimination with partial pivoting; monotonicity
+  constraint with linear fallback on concave-down failure
+- **Historical blend** — weighted ensemble (0.4 polynomial / 0.6 historical mean),
+  stratified by session intent and duration with a hierarchical data-sufficiency
+  fallback ladder
+- **Bias correction + uncertainty** — self-personalizing multiplicative correction
+  factor (rolling mean of actual/projected ratios); proportional prediction intervals
+  scaled by sample standard deviation of past errors (Bessel-corrected)
+
+Accuracy is evaluated in-app via MAE/MAPE on held-out sessions. No external math
+libraries — implemented from scratch in Kotlin.
+
+See [`ANALYSIS.md`](ANALYSIS.md) for full trade-off analysis of approaches considered,
+including ETS, splines, and Kalman filtering.
+
+---
+
 ## Screenshots
-
-> 📸 **Live session — recording active**
-> Show: zone color banner, scrolling HR chart, calorie chart with solid actual line +
-> lighter projected line + faint confidence band, zone time summary bar (proportional
-> color segments with M:SS labels), duration picker chips, intensity picker chips.
-
-> 📸 **Calorie projection close-up**
-> Show: the chart at ~15–20 min into a session, where actual and projected lines
-> diverge clearly and the confidence band is visible. Caption below chart should read
-> something like "Historical blend from min 15  •  ±9% historical range".
-
-> 📸 **Session history**
-> Show: several cards with zone distribution bars, intensity chips (colored
-> RECOVERY / STEADY / PUSH), and a mix of real and synthetic sessions.
-
-> 📸 **Settings — zone thresholds**
-> Show: the zone threshold sliders with the five zone color swatches.
+Screenshots coming — requires enough physical H10 sessions to show live data. See Debug Tools for the synthetic session seeder.
 
 ---
 
@@ -209,13 +221,9 @@ A **synthetic session seeder** (debug only) generates parameterized HR curves
 to Room. Synthetic sessions are tagged "SYN" in the history list. Useful for
 populating the historical baseline without running real workouts.
 
-> 📸 **Evaluation screen**
-> Show: the MAE/MAPE accuracy table with poly vs. blend columns, and the overlay chart.
-
 ---
 
 ## AI Collaboration
 
 Built with [Claude Code](https://claude.ai/code) (Anthropic).
 See [`CLAUDE.md`](CLAUDE.md) for full project architecture constraints and SDK gotchas.
-See [`ANALYSIS.md`](ANALYSIS.md) for the analytical methods and trade-off rationale.
