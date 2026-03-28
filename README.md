@@ -1,143 +1,221 @@
 # PulseCoach
 
-Personal Android training companion for the Polar H10 heart rate monitor.
-Built with Kotlin + Jetpack Compose. Fully offline — no accounts, no cloud.
+A personal Android training companion for the **Polar H10** heart rate monitor.
+Real-time HR zones, caloric effort tracking, and a self-personalizing projection engine
+that learns your workout patterns over time.
 
-**Stack:** Kotlin · Jetpack Compose · Polar BLE SDK · Vico charts · Room · Coroutines/Flow
+Built with Kotlin + Jetpack Compose. Fully offline — no accounts, no cloud, no analytics SDKs.
+
+**Stack:** Kotlin · Jetpack Compose · Polar BLE SDK 5.4.0 · Vico Charts · Room · Coroutines/Flow
+
+---
+
+> 📸 **Screenshot opportunity:** app icon / hero shot — live session screen mid-workout,
+> showing zone banner, HR chart, calorie chart with projection line and confidence band,
+> and zone time summary bar.
+
+---
+
+## What It Does
+
+Connect your Polar H10, tap Start, and PulseCoach:
+
+- Streams heart rate at 1 Hz over BLE and classifies each reading into one of five
+  configurable HR zones in real time
+- Estimates calorie burn per second using the Keytel et al. (2005) formula
+  (personalized to your age, weight, and sex)
+- After 10 minutes of recording, projects your cumulative calorie total to the end
+  of your target session duration
+- Blends that projection with your personal training history for a more stable estimate
+- Applies a self-calibrating bias correction that learns how your actual sessions
+  compare to their projections over time
+- Displays a confidence band around the projection reflecting your historical
+  session-to-session variability
+
+Sessions are saved to a local Room database. Export any session as a CSV to Downloads.
+
+---
+
+## Screenshots
+
+> 📸 **Live session — recording active**
+> Show: zone color banner, scrolling HR chart, calorie chart with solid actual line +
+> lighter projected line + faint confidence band, zone time summary bar (proportional
+> color segments with M:SS labels), duration picker chips, intensity picker chips.
+
+> 📸 **Calorie projection close-up**
+> Show: the chart at ~15–20 min into a session, where actual and projected lines
+> diverge clearly and the confidence band is visible. Caption below chart should read
+> something like "Historical blend from min 15  •  ±9% historical range".
+
+> 📸 **Session history**
+> Show: several cards with zone distribution bars, intensity chips (colored
+> RECOVERY / STEADY / PUSH), and a mix of real and synthetic sessions.
+
+> 📸 **Settings — zone thresholds**
+> Show: the zone threshold sliders with the five zone color swatches.
+
+---
+
+## Projection Engine
+
+The calorie projection runs a four-layer pipeline:
+
+**1. Polynomial fit**
+Every minute, a degree-2 polynomial (`y = a + b·t + c·t²`) is fit to the
+cumulative calorie curve via closed-form least-squares normal equations, solved
+by Gaussian elimination with partial pivoting. The fitted curve is extrapolated
+to the target session end time. If the parabola curves back down (concave-down
+with peak before target — a failure mode with sparse early data), the projector
+falls back to linear extrapolation from the recent slope.
+
+**2. Historical blend**
+Once you have 10+ sessions of the same type and duration, the polynomial is blended
+with a per-minute average curve from your past sessions:
+`projection(t) = 0.4 × polynomial(t) + 0.6 × historical_average(t)`
+Sessions are stratified by intent (Recovery / Steady / Push) and duration bucket
+(20 / 30 / 45 / 60 min). A hierarchical fallback ladder relaxes the filter if a
+stratum is too sparse.
+
+**3. Personal bias correction**
+After each session, `ratio = actual_calories / projected_calories_at_actual_duration`
+is folded into a rolling mean correction factor stored in SharedPreferences.
+The factor is a no-op until 3 valid ratios are accumulated; outlier ratios outside
+[0.5, 2.0] are discarded. All future projections are multiplied by this factor.
+The ratio is Keytel/Keytel — it does not correct the formula's absolute accuracy,
+it learns how your actual session trajectories compare to your own average trajectory.
+
+**4. Prediction intervals**
+The standard deviation of past ratios (Bessel-corrected, active after 5 sessions)
+is used to render a proportional confidence band:
+`upper(t) = projection(t) × (1 + σ)`,  `lower(t) = projection(t) × (1 − σ)`.
+The band widens at later minutes because σ scales with the projected calorie value —
+uncertainty compounds over the forecast horizon.
+
+The full analytical rationale and trade-off analysis is in [`ANALYSIS.md`](ANALYSIS.md).
+
+---
+
+## Features
+
+### Live Session Screen
+- Zone color banner (5 configurable zones, Z1–Z5)
+- Scrolling 60-second HR chart
+- Live cal/min display
+- Cumulative calorie chart with projection + confidence band (after 10 min)
+- Target duration picker (20 / 30 / 45 / 60 min)
+- Session intent picker (Recovery / Steady / Push) — affects historical blend
+- Zone time summary bar — proportional color segments with M:SS time-in-zone labels
+- Auto-reconnect on BLE signal drop (up to 5 retries, 3-second backoff)
+
+### Session History
+- Chronological session cards with zone distribution bar, intensity chip, total calories,
+  avg BPM, duration
+- Tap intensity chip to edit session classification
+- Multi-select delete with confirmation
+- CSV export via MediaStore API (Android 10+)
+
+### Settings & Profile
+- Per-zone threshold sliders (persisted to Room)
+- User profile (age, weight, sex) — persisted to SharedPreferences; used by Keytel formula
+
+---
+
+## Architecture
+
+**Pattern:** MVVM with a Repository layer. One ViewModel per screen.
+
+```
+app/src/main/kotlin/com/pulsecoach/
+  ble/          PolarBleManager — BLE scan, connect, HR stream (callbackFlow bridge)
+  data/         Room entities, DAOs, PulseCoachDatabase (v4)
+  model/        Pure data classes (HrReading, Session, HrSample, ZoneConfig, UserProfile, SessionType)
+  repository/   SessionRepository, ZoneConfigRepository, UserProfileRepository
+  ui/           LiveSessionScreen, SessionHistoryScreen, ProfileSetupScreen,
+                SettingsScreen, EvaluationScreen (debug),
+                LiveHrChart, LiveCalorieChart, ZoneTimeSummary
+  util/         ZoneCalculator, CalorieCalculator, CsvExporter,
+                PolynomialProjector, HistoricalAverager,
+                SyntheticSessionGenerator, ProjectionCalibrator
+  viewmodel/    LiveSessionViewModel, SessionHistoryViewModel,
+                SettingsViewModel, ProfileViewModel, EvaluationViewModel
+  MainActivity  NavHost — routes: live_session, settings, profile_setup,
+                profile_edit, session_history, evaluation (debug only)
+```
+
+**Key decisions:**
+- StateFlow everywhere — no LiveData
+- All Polar SDK / BLE operations run on background coroutines via `callbackFlow`;
+  RxJava Flowables from the SDK never escape `PolarBleManager`
+- Room v4 — migrations 1→2, 2→3 (sessionType column), 3→4 (zone split columns)
+- User profile in SharedPreferences, not Room — single record, not tabular data
+- Calibration state in SharedPreferences (`pulse_coach_calibration`) — scalar factor
+  and ratio list, no schema version dependency
 
 ---
 
 ## Build & Run
 
 **Prerequisites**
-- Android Studio installed (provides JDK, Android SDK, Gradle)
-- `JAVA_HOME` set to Android Studio's JBR — add to `~/.bashrc` in Git Bash:
+- Android Studio (provides JDK, Android SDK, Gradle)
+- `JAVA_HOME` pointing to Android Studio's JBR — add to `~/.bashrc` in Git Bash:
   ```bash
   export JAVA_HOME="/c/Program Files/Android/Android Studio/jbr"
   ```
 - Developer Options + USB Debugging enabled on your Android device
-  (Settings → About Phone → tap Build Number 7 times)
+  (Settings → About Phone → tap Build Number 7×)
 
 **Commands** (run from Git Bash in project root)
 ```bash
 ./gradlew assembleDebug     # build only
-./gradlew installDebug      # build and install to connected device (preserves data)
-./gradlew test              # JVM unit tests (no device needed)
+./gradlew installDebug      # build + install to connected device (preserves data)
+./gradlew test              # all JVM unit tests, no device needed
 ```
 
----
-
-## Phase 1 — Live HR + Zones ✅
-
-- [x] Polar H10 BLE scan, connect, disconnect
-- [x] Live HR stream (1 reading/sec) via callbackFlow bridge from RxJava
-- [x] Zone classification (1–5) using user-configurable thresholds
-- [x] Zone color banner — screen background updates with current zone
-- [x] Live scrolling 60-second HR chart (Vico) with y-axis bpm labels
-- [x] Zone strip indicator (Z1–Z5) below chart
-- [x] Settings screen — sliders for zone thresholds, persisted to Room
-- [x] BLE permission handling (Android 12+ BLUETOOTH_SCAN / BLUETOOTH_CONNECT)
+Test report: `app/build/reports/tests/testDebugUnitTest/index.html`
 
 ---
 
-## Phase 2 — Session Recording ✅
+## Tests
 
-- [x] User profile setup (age, weight, sex) — stored in SharedPreferences
-- [x] First-launch onboarding flow; editable from Settings thereafter
-- [x] Calorie/min calculation — Keytel et al. (2005) formula
-- [x] Session start/stop recording — writes to Room (`sessions` + `hr_samples` tables)
-- [x] Live cal/min display in zone banner (always on while connected)
-- [x] Session total calories + recording indicator on live screen
-- [x] Session history list screen (newest first, with date/time, duration, cal, avg bpm)
-- [x] CSV export to Downloads folder (MediaStore API, Android 10+)
-- [x] Fixed: chart y-axis floor at 50 bpm; x-axis labeled in seconds
-- [x] Fixed: BPM font replaced with explicit 96sp value
-- [x] Fixed: spurious "Check sensor contact" warning removed
+75 JVM unit tests — no device or emulator required.
 
-**Storage:** ~150 KB per 30-minute session in Room (~1,800 rows at 1 sample/sec).
-CSV export of the same session is ~90 KB. 100 sessions ≈ 15 MB total.
+| Test class | What it covers |
+|---|---|
+| `CalorieCalculatorTest` | Keytel formula (male/female), sub-90 BPM guard, negative clamp, `calPerSample` |
+| `ZoneCalculatorTest` | Every zone boundary, custom `ZoneConfig`, color opacity, name fallbacks |
+| `PolynomialProjectorTest` | Gaussian elimination, quadratic fit recovery, monotonicity, guard conditions |
+| `HistoricalAveragerTest` | Per-minute averaging, linear extrapolation, blend weighting |
+| `HistoricalAveragerFallbackTest` | Tier 1/2/3 fallback ladder, typed filtering |
+| `ProjectionCalibratorTest` | `applyTo`, `interpolateProjection`, `computeRollingMean`, `computeSigma` (pure functions) |
+| `ProjectionCalibratorPrefsTest` | SharedPreferences round-trip, n < 3 guard, outlier rejection, sigma gate — via Robolectric |
+| `EvaluationViewModelTest` | MAE/MAPE accuracy calculations, per-type metrics |
 
-**Phase 2 Polish**
-- [x] Live session screen: running avg BPM and avg cal/min in recording stats row
-- [x] Session history cards: avg cal/min derived stat (totalCalories / durationMinutes)
-- [x] Session history: multi-select delete with confirmation dialog
-
-**Known issues**
-- No BLE reconnection logic — user must scan again after a signal drop.
+Robolectric 4.13 is configured for tests requiring Android context (`@RunWith(RobolectricTestRunner::class)`, `@Config(sdk = [34])`).
 
 ---
 
-## Unit Tests
+## Debug Tools
 
-JVM tests (no device required) covering pure utility functions:
+A debug-only **Evaluation Screen** is accessible from the session history menu. It:
+- Runs a held-out accuracy test on your session history
+- Reports MAE and MAPE for polynomial-only vs. blended projections
+- Breaks results down by session type (Recovery / Steady / Push)
+- Shows an overlay chart of projected vs. actual curves
+- Observation windows: 10, 15, and 20 minutes
 
-- `CalorieCalculatorTest` — male/female Keytel formula against known values, sub-90 bpm guard, negative clamp, `calPerSample` relationship
-- `ZoneCalculatorTest` — every zone boundary at/above/below threshold, custom `ZoneConfig`, color opacity, name fallbacks
-- `PolynomialProjectorTest` — Gaussian elimination solver, quadratic fit recovery, guard conditions, monotonicity, known-quadratic accuracy
+A **synthetic session seeder** (debug only) generates parameterized HR curves
+(logistic warm-up → Gaussian steady-state → exponential cooldown) and writes them
+to Room. Synthetic sessions are tagged "SYN" in the history list. Useful for
+populating the historical baseline without running real workouts.
 
-Run with `./gradlew test`. Output at `app/build/reports/tests/testDebugUnitTest/index.html`.
-
----
-
-## Phase 3 — Projection Engine
-
-**Stage 1 — Phase 3a: Polynomial projection (complete)**
-- [x] Target duration picker (30/45/60 min chips) on live session screen
-- [x] `PolynomialProjector` — degree-2 least-squares fit via Gaussian elimination; monotonicity fallback to linear; no external math library
-- [x] Cumulative calorie chart (`LiveCalorieChart`) — actual line (solid) + projected line (lighter opacity) using Vico
-- [x] Projection activates automatically after 10 minutes of recording data
-- [x] 12 unit tests for `PolynomialProjector` covering solver, guard conditions, and known-quadratic accuracy
-
-**Stage 2 — Synthetic seeder (next)**
-- [ ] `SyntheticSessionGenerator` — parameterized HR curves (logistic warm-up, Gaussian steady-state, exponential cooldown)
-- [ ] Seed button (debug builds only) writes 12 synthetic sessions to Room
-- [ ] "SYN" tag on history cards for synthetic sessions
-
-**Stage 3 — Phase 3b: Historical blend**
-- [ ] `HistoricalAverager` — per-minute average calorie curve across qualifying sessions
-- [ ] Blend: 0.4 × polynomial + 0.6 × historical; activates at 10+ qualifying sessions
-- [ ] Qualifying filter: completed, avg BPM > 100, duration > 10 min
-
-**Stage 4 — Evaluation screen (debug builds only)**
-- [ ] Generate held-out synthetic test sessions; feed first N minutes to projector
-- [ ] Overlay chart: projected vs actual curves
-- [ ] Accuracy vs elapsed time chart: MAE / MAPE at 5/10/15/20 min observation windows
-- [ ] Phase 3a vs 3b comparison table
-
----
-
-## Project Structure
-
-```
-app/src/main/kotlin/com/pulsecoach/
-  ble/          PolarBleManager — BLE scan, connect, HR stream
-  data/         Room entities (Session, HrSample, ZoneConfig), DAOs, PulseCoachDatabase v2
-  model/        Pure data classes (HrReading, Session, HrSample, ZoneConfig, UserProfile)
-  repository/   SessionRepository, ZoneConfigRepository, UserProfileRepository
-  ui/           LiveSessionScreen, SessionHistoryScreen, ProfileSetupScreen,
-                SettingsScreen, LiveHrChart, LiveCalorieChart
-  util/         ZoneCalculator, CalorieCalculator, CsvExporter, PolynomialProjector
-  viewmodel/    LiveSessionViewModel, SessionHistoryViewModel,
-                SettingsViewModel, ProfileViewModel
-  MainActivity  NavHost — routes: live_session, settings, profile_setup,
-                profile_edit, session_history
-```
-
-## Architecture Notes
-
-- **MVVM** with Repository layer. One ViewModel per screen.
-- **StateFlow** everywhere — no LiveData.
-- **BLE rule:** all Polar SDK operations run on background coroutines via `callbackFlow`.
-  The RxJava Flowables from the SDK are never exposed outside `PolarBleManager`.
-- **Room version:** 2. Migration 1→2 adds `sessions` and `hr_samples` tables.
-  Increment version + add Migration on any schema change.
-- **Vico version:** 2.0.0-beta.3. Key gotchas documented in `CLAUDE.md`.
-- **User profile:** SharedPreferences (not Room) — single key-value record, not tabular data.
-- **CSV export:** MediaStore API (Android 10+). Pre-API-29 shows a graceful error.
+> 📸 **Evaluation screen**
+> Show: the MAE/MAPE accuracy table with poly vs. blend columns, and the overlay chart.
 
 ---
 
 ## AI Collaboration
 
-Built with Claude (Anthropic) via Claude Code.
-See `CLAUDE.md` for full project instructions and constraints.
+Built with [Claude Code](https://claude.ai/code) (Anthropic).
+See [`CLAUDE.md`](CLAUDE.md) for full project architecture constraints and SDK gotchas.
+See [`ANALYSIS.md`](ANALYSIS.md) for the analytical methods and trade-off rationale.
