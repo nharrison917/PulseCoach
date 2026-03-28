@@ -23,8 +23,9 @@ com.pulsecoach/
   repository/   Data access layer (BLE + Room)
   data/         Room entities, DAOs, Database
   ble/          Polar SDK wrapper and HR stream logic
-  model/        Pure data classes (Session, HrSample, HrReading, ZoneConfig, UserProfile)
-  util/         CalorieCalculator, ZoneCalculator, CsvExporter
+  model/        Pure data classes (Session, HrSample, HrReading, ZoneConfig, UserProfile, SessionType)
+  util/         CalorieCalculator, ZoneCalculator, CsvExporter, PolynomialProjector,
+                HistoricalAverager, SyntheticSessionGenerator, ProjectionCalibrator
 State Management
 Use StateFlow and collectAsState() in Compose. Avoid LiveData — StateFlow is the current standard.
 
@@ -67,9 +68,11 @@ Zones are user-defined. ZoneConfig is stored in Room. The defaults below are sug
 Zone colors: use a consistent palette. Suggested: Z1=#80B4FF, Z2=#80E27E, Z3=#FFD54F, Z4=#FF8A65, Z5=#EF5350
 
 Data Storage
-•	Room database: PulseCoachDatabase (version 2, increment on schema change with migration).
+•	Room database: PulseCoachDatabase (version 4, increment on schema change with migration).
 •	Tables: sessions, hr_samples, zone_config.
-•	User profile (age, weight, sex): SharedPreferences, not Room.
+•	Migrations: 1→2, 2→3 (sessionType TEXT), 3→4 (zone1Seconds–zone5Seconds INTEGER NOT NULL DEFAULT 0).
+•	User profile (age, weight, sex): SharedPreferences ("user_profile"), not Room.
+•	Calibration state: SharedPreferences ("pulse_coach_calibration") — keys: proj_correction_factor (Float), proj_correction_n (Int), proj_ratios (String, comma-separated).
 •	Never delete session data without explicit user confirmation.
 •	Storage estimate: ~150 KB per 30-minute session in Room; ~90 KB as CSV export.
 
@@ -79,24 +82,17 @@ Required columns:
 timestamp_ms, bpm, zone, cal_per_min, cumulative_cal
 Write to the Downloads folder using MediaStore API (Android 10+). Pre-API-29 devices get a graceful error message — do not add WRITE_EXTERNAL_STORAGE complexity.
 
-Projection Engine (Phase 3)
-Build in two sub-phases:
-Phase 3a — In-session extrapolation
-•	After 10 minutes of data, fit a polynomial to the cumulative calorie curve.
-•	Project the polynomial to the session target end time.
-•	Display as a dashed line extension on the cal/min graph.
-Phase 3b — Historical weighting
-•	After 10+ sessions are stored, compute a per-minute average calorie curve across past sessions.
-•	Blend the polynomial projection (weight 0.4) with the historical curve (weight 0.6).
-•	Weights can be tuned — expose as a developer setting in debug builds.
-Do not implement Phase 3b until Phase 3a is working and tested.
+Projection Engine
+•	After 10 minutes of data, PolynomialProjector fits a degree-2 least-squares curve to the cumulative calorie series and extrapolates to the target session end time. Falls back to linear if the quadratic is non-monotonic.
+•	After 10+ qualifying sessions, HistoricalAverager blends the polynomial (0.4) with a per-minute historical average (0.6). Sessions are stratified by SessionType and duration bucket (20/30/45/60 min) with a three-tier fallback ladder.
+•	ProjectionCalibrator applies a personal bias correction factor (rolling mean of actual/projected ratios) and a fractional confidence band (sample σ of past ratios). Both activate only after a minimum number of sessions. See ANALYSIS.md for full mathematical detail.
 
 Testing Strategy
-•	CalorieCalculator and ZoneCalculator are covered by JVM unit tests in src/test/. Run with ./gradlew test (no device needed).
-•	JUnit 4 dependency: testImplementation("junit:junit:4.13.2") — already in build.gradle.kts.
-•	Robolectric: testImplementation("org.robolectric:robolectric:4.13") — in build.gradle.kts. Use @RunWith(RobolectricTestRunner::class) + @Config(sdk = [34]) for any test that needs Android context (SharedPreferences, etc.). testOptions.unitTests.isIncludeAndroidResources = true is set.
+•	JVM unit tests in src/test/ — run with ./gradlew test (no device needed).
+•	JUnit 4: testImplementation("junit:junit:4.13.2").
+•	Robolectric: testImplementation("org.robolectric:robolectric:4.13"). Use @RunWith(RobolectricTestRunner::class) + @Config(sdk = [34]) for any test requiring Android context (SharedPreferences, etc.). testOptions.unitTests.isIncludeAndroidResources = true is set.
 •	Use a mock BLE data source (emitting fake HR values on a timer) for UI testing without hardware.
-•	UI instrumentation tests are unblocked if needed now that Phase 2 is complete.
+•	UI instrumentation tests are available if needed.
 
 Code Style
 •	Kotlin idioms preferred: use data classes, sealed classes for state, extension functions for utilities.
@@ -122,9 +118,11 @@ Token Efficiency (lessons from this project)
 Key StateFlow grep targets (avoids full ViewModel reads):
 •	Recording state: _isRecording
 •	Projection output: _projectedCalorieCurve
+•	Confidence band: _projectionBand
 •	Calorie curve data: _actualCalorieCurve
 •	Target duration: _targetDurationMinutes
 •	Historical blend state: _qualifyingSessionCount, historicalCurve
+•	Zone time splits: _zoneSeconds
 
 SDK Gotchas (hard-won — read before touching these APIs)
 Vico 2.0.0-beta.3
@@ -138,6 +136,7 @@ Vico 2.0.0-beta.3
 •	Multi-series with different x ranges: use series(x = listOf(...), y = listOf(...)) with explicit x values. Both series in one LineCartesianLayer with LineProvider.series(line0, line1) — series index maps to line style.
 •	x values must have at most 4 decimal places of precision (Vico validates via getXDeltaGcd). NEVER use fractional offsets like + 0.01f as dummy x values — IEEE 754 float representation of 0.01 is imprecise and will trigger IllegalArgumentException. Use whole-number offsets like + 1f instead (integers are always exact in float).
 •	Axis label TextComponent: rememberTextComponent does NOT exist in com.patrykandpatrick.vico.compose.common for this version. Use TextComponent directly from com.patrykandpatrick.vico.core.common.component.TextComponent. Pass an ARGB int, not a Compose Color: val onSurface = MaterialTheme.colorScheme.onSurface.toArgb(); val axisLabel = remember(onSurface) { TextComponent(color = onSurface) }
+•	LiveCalorieChart uses 4 series (actual / projected / upper band / lower band). All 4 must always be present in the model — use 2-point dummies at the last actual position when a series has no real data.
 
 Polar BLE SDK 5.4.0
 •	PolarBleApiCallback.deviceDisconnected takes ONE parameter (polarDeviceInfo: PolarDeviceInfo). There is no reason: Int second parameter in this version. Adding it causes a compile error.
@@ -145,40 +144,3 @@ Polar BLE SDK 5.4.0
 
 Material XML Theme
 •	The app theme in res/values/themes.xml uses Theme.Material3.DayNight.NoActionBar. This requires the com.google.android.material:material:1.12.0 library even though the rest of the UI is Compose. Without it, processDebugResources fails.
-
-Current Phase
-Phase 1 — COMPLETE.
-Phase 2 — COMPLETE (all core + all polish items including multi-select delete).
-Phase 3 — COMPLETE.
-Phase 4 — COMPLETE.
-Phase 5 — COMPLETE.
-Phase 6 — COMPLETE.
-Phase 7 — COMPLETE.
-
-Phase 3 — Projection Engine (all stages COMPLETE):
-Stage 1: PolynomialProjector + LiveCalorieChart + duration picker (20/30/45/60 min) + 12 unit tests
-Stage 2: SyntheticSessionGenerator → seed button (debug) → SYN tag on history cards
-Stage 3: HistoricalAverager → blend logic (0.4 poly + 0.6 historical) → qualifying session filter → 8 unit tests
-Stage 4: EvaluationViewModel + EvaluationScreen (debug only) → MAE/MAPE accuracy tables, overlay chart, poly-vs-blend comparison
-
-Phase 4 — Session Intent Classification (all stages COMPLETE):
-Stage 1: SessionType enum (RECOVERY/STEADY/PUSH) → Room v2→v3 migration (ALTER TABLE sessions ADD COLUMN sessionType TEXT) → SessionDao + SessionRepository wired
-Stage 2: HistoricalAverager.durationBucketFor() + getFilteredCurve() fallback ladder (Tier 1: type+bucket ≥10, Tier 2: type only ≥10, Tier 3: polynomial) → 7 unit tests
-Stage 3: IntensityPicker chips on LiveSessionScreen (Recovery/Steady/Push, tapping selected deselects) → flatMapLatest in LiveSessionViewModel init switches qualifying query on type change
-Stage 4: stopRecording() stamps targetDurationMs = durationBucketFor(actualDuration) → SessionHistoryScreen intensity chip (colored, tappable) → edit dialog (RadioButtons + Clear/Save/Cancel) → SessionHistoryViewModel.updateSessionType()
-Evaluation update: EvaluationScreen Panel 4 added — per-type poly vs typed-blend accuracy; TypedMetrics data class; testParamTypes assigns each held-out session a type; observation windows reduced to 10/15/20 min (5-min window removed — projector requires ≥10 min of data)
-
-Phase 5 — BLE Reconnection (COMPLETE):
-Auto-reconnect on signal drop: LiveSessionViewModel tracks lastConnectedDeviceId; on Disconnected fires up to 5 retries × 3s delay via reconnectJob; isReconnecting: StateFlow<Boolean> exposed to UI; voluntary disconnect() clears lastConnectedDeviceId first to suppress reconnect; ReconnectingContent composable shows spinner + "Recording paused" note if session active; onCleared() cancels reconnectJob
-
-Phase 6 — Live Zone Time Tracking (COMPLETE):
-Live: zoneSecondsArray accumulator in LiveSessionViewModel → zoneSeconds StateFlow → ZoneTimeSummary composable (proportional color bar + M:SS labels) on LiveSessionScreen while recording.
-Persisted: DB v3→v4 migration adds zone1Seconds–zone5Seconds (INTEGER NOT NULL DEFAULT 0) to sessions table. finishSession() writes splits; SessionHistoryScreen shows compact 6dp zone bar on cards (hidden for pre-v4 sessions).
-
-Phase 7 — Projection Calibration (COMPLETE):
-Stage 1: ProjectionCalibrator (util/) — rolling mean of actual/projected ratios, SharedPreferences file "pulse_coach_calibration" (keys: proj_correction_factor Float, proj_correction_n Int), outlier guard [0.5–2.0], no-op until ≥3 sessions. stopRecording() snapshots cumulativeCalories + _projectedCalorieCurve.value before the coroutine; calls updateFactor() after finishSession(). Per-minute projection block calls getCorrectionFactor() + applyTo() before assigning _projectedCalorieCurve.
-Stage 2: ProjectionCalibrator extended with ratio list (proj_ratios String, comma-separated, capped at 50) + computeSigma() (sample std dev, Bessel's correction) + getProjectionSigma() (null until ≥5 sessions). _projectionBand: StateFlow<Float?> in LiveSessionViewModel. LiveCalorieChart expanded to 4-series Vico layout (actual / projected / upper band / lower band); band lines at 0.20f opacity; always 4 series in model — dummies when inactive. projectionBand threaded through ConnectedContent. Caption shows ±N% historical range when band is active.
-Testing: 32 unit tests total — 21 pure JVM in ProjectionCalibratorTest, 11 Robolectric in ProjectionCalibratorPrefsTest. Full coverage including getCorrectionFactor() SharedPreferences guard, updateFactor() round-trip, outlier rejection, and getProjectionSigma() gate. Robolectric 4.13 is now in the project (testImplementation, @Config sdk=34).
-
-Known issues carried forward:
-•	None.
