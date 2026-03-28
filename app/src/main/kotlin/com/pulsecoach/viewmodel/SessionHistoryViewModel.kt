@@ -8,6 +8,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.pulsecoach.data.PulseCoachDatabase
 import com.pulsecoach.model.Session
+import com.pulsecoach.model.SessionType
 import com.pulsecoach.repository.SessionRepository
 import com.pulsecoach.repository.UserProfileRepository
 import com.pulsecoach.util.CsvExporter
@@ -174,6 +175,16 @@ class SessionHistoryViewModel(application: Application) : AndroidViewModel(appli
     /** Exits selection mode without deleting anything. */
     fun clearSelection() {
         _selectedIds.value = emptySet()
+    }
+
+    /**
+     * Updates the intensity classification for a single session.
+     * Passing null clears the label — Room Flow on getAllSessions() refreshes the list automatically.
+     */
+    fun updateSessionType(sessionId: Long, type: SessionType?) {
+        viewModelScope.launch {
+            repository.updateSessionType(sessionId, type)
+        }
     }
 
     /**

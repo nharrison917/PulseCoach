@@ -60,4 +60,28 @@ interface SessionDao {
         ORDER BY startTimeMs ASC
     """)
     fun getQualifyingSessions(): Flow<List<SessionEntity>>
+
+    /**
+     * Like [getQualifyingSessions] but filtered to a specific session type.
+     * Used by the fallback ladder: Tier 1 (same type + same duration bucket)
+     * and Tier 2 (same type, any duration) both call this query.
+     * [type] is the SessionType.name string (e.g. "STEADY").
+     */
+    @Query("""
+        SELECT * FROM sessions
+        WHERE endTimeMs IS NOT NULL
+          AND avgBpm > 100
+          AND (endTimeMs - startTimeMs) > 600000
+          AND sessionType = :type
+        ORDER BY startTimeMs ASC
+    """)
+    fun getQualifyingSessionsByType(type: String): Flow<List<SessionEntity>>
+
+    /**
+     * Write a new sessionType value to a single session row.
+     * Called when the user edits the intensity label on the history card.
+     * Passing null clears the classification back to "--".
+     */
+    @Query("UPDATE sessions SET sessionType = :sessionType WHERE id = :id")
+    suspend fun updateSessionType(id: Long, sessionType: String?)
 }

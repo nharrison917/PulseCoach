@@ -27,7 +27,8 @@ class HistoricalAveragerTest {
         targetDurationMs = null,
         totalCalories = 0f,
         avgBpm = 0f,
-        notes = ""
+        notes = "",
+        sessionType = null
     )
 
     /**

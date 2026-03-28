@@ -148,15 +148,28 @@ Material XML Theme
 Current Phase
 Phase 1 — COMPLETE.
 Phase 2 — COMPLETE (all core + all polish items including multi-select delete).
-Phase 3 — IN PROGRESS. Stages 1, 2, and 3 complete.
+Phase 3 — COMPLETE.
+Phase 4 — COMPLETE.
 
-Phase 2 Polish — COMPLETE (all items done).
+Phase 3 — Projection Engine (all stages COMPLETE):
+Stage 1: PolynomialProjector + LiveCalorieChart + duration picker (20/30/45/60 min) + 12 unit tests
+Stage 2: SyntheticSessionGenerator → seed button (debug) → SYN tag on history cards
+Stage 3: HistoricalAverager → blend logic (0.4 poly + 0.6 historical) → qualifying session filter → 8 unit tests
+Stage 4: EvaluationViewModel + EvaluationScreen (debug only) → MAE/MAPE accuracy tables, overlay chart, poly-vs-blend comparison
 
-Phase 3 — Projection Engine:
-Stage 1 (COMPLETE): PolynomialProjector + LiveCalorieChart + duration picker + 12 unit tests
-Stage 2 (COMPLETE): SyntheticSessionGenerator → seed button (debug) → SYN tag on history cards
-Stage 3 (COMPLETE): HistoricalAverager → blend logic (0.4 poly + 0.6 historical) → qualifying session filter → 8 unit tests
-Stage 4 (next): EvaluationViewModel + EvaluationScreen (debug only) → MAE/MAPE accuracy charts
+Phase 4 — Session Intent Classification (all stages COMPLETE):
+Stage 1: SessionType enum (RECOVERY/STEADY/PUSH) → Room v2→v3 migration (ALTER TABLE sessions ADD COLUMN sessionType TEXT) → SessionDao + SessionRepository wired
+Stage 2: HistoricalAverager.durationBucketFor() + getFilteredCurve() fallback ladder (Tier 1: type+bucket ≥10, Tier 2: type only ≥10, Tier 3: polynomial) → 7 unit tests
+Stage 3: IntensityPicker chips on LiveSessionScreen (Recovery/Steady/Push, tapping selected deselects) → flatMapLatest in LiveSessionViewModel init switches qualifying query on type change
+Stage 4: stopRecording() stamps targetDurationMs = durationBucketFor(actualDuration) → SessionHistoryScreen intensity chip (colored, tappable) → edit dialog (RadioButtons + Clear/Save/Cancel) → SessionHistoryViewModel.updateSessionType()
+Evaluation update: EvaluationScreen Panel 4 added — per-type poly vs typed-blend accuracy; TypedMetrics data class; testParamTypes assigns each held-out session a type; observation windows reduced to 10/15/20 min (5-min window removed — projector requires ≥10 min of data)
+
+Phase 5 — BLE Reconnection (COMPLETE):
+Auto-reconnect on signal drop: LiveSessionViewModel tracks lastConnectedDeviceId; on Disconnected fires up to 5 retries × 3s delay via reconnectJob; isReconnecting: StateFlow<Boolean> exposed to UI; voluntary disconnect() clears lastConnectedDeviceId first to suppress reconnect; ReconnectingContent composable shows spinner + "Recording paused" note if session active; onCleared() cancels reconnectJob
+
+Phase 6 — Live Zone Time Tracking (NEXT):
+During a session, accumulate elapsed seconds per zone (Z1–Z5) and show a horizontal bar or text summary on LiveSessionScreen.
+Stretch: persist per-session zone splits to Room (new column or table) for history display.
 
 Known issues carried forward:
-•	No BLE reconnection logic — user must scan again after a signal drop.
+•	None — BLE reconnection resolved the last known issue.

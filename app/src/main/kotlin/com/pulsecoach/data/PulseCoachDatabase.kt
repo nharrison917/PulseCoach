@@ -13,6 +13,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
  * Version history:
  *  1 → Initial schema: zone_config table only.
  *  2 → Added sessions and hr_samples tables (Phase 2 session recording).
+ *  3 → Added sessionType column to sessions (Phase 4 Session Intent Classification).
  *
  * IMPORTANT: increment [version] and add a Migration object every time you add
  * or change a table column — Room will crash on existing installs if you don't.
@@ -24,7 +25,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         SessionEntity::class,
         HrSampleEntity::class
     ],
-    version = 2,
+    version = 3,
     exportSchema = false
 )
 abstract class PulseCoachDatabase : RoomDatabase() {
@@ -84,6 +85,19 @@ abstract class PulseCoachDatabase : RoomDatabase() {
             }
         }
 
+        /**
+         * Migration from v2 to v3.
+         * Adds the sessionType column (nullable TEXT) to the sessions table.
+         * SQLite ALTER TABLE only supports adding columns, not removing them — and
+         * nullable columns with no default are always safe to add this way.
+         * Existing rows will have sessionType = NULL (displayed as "--" in the UI).
+         */
+        private val MIGRATION_2_3 = object : Migration(2, 3) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE `sessions` ADD COLUMN `sessionType` TEXT")
+            }
+        }
+
         /** Returns the singleton database instance, creating it on first call. */
         fun getInstance(context: Context): PulseCoachDatabase =
             instance ?: synchronized(this) {
@@ -92,7 +106,7 @@ abstract class PulseCoachDatabase : RoomDatabase() {
                     PulseCoachDatabase::class.java,
                     "pulsecoach_db"
                 )
-                    .addMigrations(MIGRATION_1_2)
+                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
                     .build()
                     .also { instance = it }
             }

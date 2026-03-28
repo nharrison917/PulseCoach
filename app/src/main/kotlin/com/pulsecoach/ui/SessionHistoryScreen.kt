@@ -33,6 +33,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Snackbar
 import androidx.compose.material3.SnackbarHost
@@ -56,6 +57,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.pulsecoach.BuildConfig
 import com.pulsecoach.model.Session
+import com.pulsecoach.model.SessionType
 import com.pulsecoach.viewmodel.ExportResult
 import com.pulsecoach.viewmodel.SeedingState
 import com.pulsecoach.viewmodel.SessionHistoryViewModel
@@ -86,6 +88,8 @@ fun SessionHistoryScreen(
     val isInSelectionMode = selectedIds.isNotEmpty()
 
     var showDeleteConfirmation by remember { mutableStateOf(false) }
+    // ID of the session whose intensity label the user is editing; null = dialog closed.
+    var sessionIdForTypeEdit by remember { mutableStateOf<Long?>(null) }
     val snackbarHostState = remember { SnackbarHostState() }
 
     // While in selection mode, intercept the system back button to clear the selection
@@ -140,6 +144,52 @@ fun SessionHistoryScreen(
             },
             dismissButton = {
                 TextButton(onClick = { showDeleteConfirmation = false }) { Text("Cancel") }
+            }
+        )
+    }
+
+    // Intensity-edit dialog — find the live session object so we can pre-select its current type.
+    sessionIdForTypeEdit?.let { editId ->
+        val editSession = sessions.find { it.id == editId }
+        // Track the radio selection locally; initialises to the session's current type.
+        var pendingType by remember(editId) { mutableStateOf(editSession?.sessionType) }
+
+        AlertDialog(
+            onDismissRequest = { sessionIdForTypeEdit = null },
+            title = { Text("Set Intensity") },
+            text = {
+                Column {
+                    listOf(SessionType.RECOVERY, SessionType.STEADY, SessionType.PUSH).forEach { type ->
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            RadioButton(
+                                selected = pendingType == type,
+                                onClick  = { pendingType = type }
+                            )
+                            Text(
+                                text     = type.displayLabel,
+                                modifier = Modifier.padding(start = 4.dp)
+                            )
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                Button(onClick = {
+                    viewModel.updateSessionType(editId, pendingType)
+                    sessionIdForTypeEdit = null
+                }) { Text("Save") }
+            },
+            dismissButton = {
+                Row {
+                    TextButton(onClick = {
+                        viewModel.updateSessionType(editId, null)
+                        sessionIdForTypeEdit = null
+                    }) { Text("Clear") }
+                    TextButton(onClick = { sessionIdForTypeEdit = null }) { Text("Cancel") }
+                }
             }
         )
     }
@@ -211,7 +261,8 @@ fun SessionHistoryScreen(
                         isSelected = session.id in selectedIds,
                         isInSelectionMode = isInSelectionMode,
                         onToggleSelect = { viewModel.toggleSelection(session.id) },
-                        onExportClick = { viewModel.exportToCsv(session.id) }
+                        onExportClick = { viewModel.exportToCsv(session.id) },
+                        onTypeEditClick = { sessionIdForTypeEdit = session.id }
                     )
                 }
                 item { Spacer(Modifier.height(16.dp)) }
@@ -250,7 +301,8 @@ private fun SessionCard(
     isSelected: Boolean,
     isInSelectionMode: Boolean,
     onToggleSelect: () -> Unit,
-    onExportClick: () -> Unit
+    onExportClick: () -> Unit,
+    onTypeEditClick: () -> Unit = {}
 ) {
     // Selected cards get a primary-color border so the selection is immediately obvious.
     Card(
@@ -309,11 +361,43 @@ private fun SessionCard(
             }
 
             Spacer(Modifier.height(4.dp))
-            Text(
-                text = formatDuration(session.startTimeMs, session.endTimeMs),
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = formatDuration(session.startTimeMs, session.endTimeMs),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                // Intensity chip — tappable outside selection mode to open the edit dialog.
+                val (chipColor, chipLabel) = when (session.sessionType) {
+                    SessionType.RECOVERY -> Color(0xFF80B4FF) to "Recovery"
+                    SessionType.STEADY   -> Color(0xFF80E27E) to "Steady"
+                    SessionType.PUSH     -> Color(0xFFFF8A65) to "Push"
+                    null                 -> MaterialTheme.colorScheme.surfaceVariant to "--"
+                }
+                Box(
+                    modifier = Modifier
+                        .background(
+                            color = chipColor.copy(alpha = if (session.sessionType != null) 0.25f else 0.5f),
+                            shape = RoundedCornerShape(4.dp)
+                        )
+                        .then(
+                            // Only allow tapping outside of selection mode
+                            if (!isInSelectionMode) Modifier.combinedClickable(onClick = onTypeEditClick)
+                            else Modifier
+                        )
+                        .padding(horizontal = 8.dp, vertical = 2.dp)
+                ) {
+                    Text(
+                        text  = chipLabel,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = if (session.sessionType != null) chipColor else MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
 
             Spacer(Modifier.height(8.dp))
             HorizontalDivider()
@@ -417,7 +501,8 @@ private val previewSessions = listOf(
         targetDurationMs = null,
         totalCalories    = 423.7f,
         avgBpm           = 152f,
-        notes            = ""
+        notes            = "",
+        sessionType      = com.pulsecoach.model.SessionType.PUSH
     ),
     Session(
         id = 2,
@@ -426,7 +511,8 @@ private val previewSessions = listOf(
         targetDurationMs = null,
         totalCalories    = 281.2f,
         avgBpm           = 141f,
-        notes            = ""
+        notes            = "",
+        sessionType      = com.pulsecoach.model.SessionType.STEADY
     ),
     Session(
         id = 3,
@@ -435,7 +521,8 @@ private val previewSessions = listOf(
         targetDurationMs = null,
         totalCalories    = 0f,
         avgBpm           = 0f,
-        notes            = ""
+        notes            = "",
+        sessionType      = null
     ),
     Session(
         id = 4,
@@ -444,6 +531,7 @@ private val previewSessions = listOf(
         targetDurationMs = 35 * 60_000L,
         totalCalories    = 312.4f,
         avgBpm           = 147f,
-        notes            = "synthetic"
+        notes            = "synthetic",
+        sessionType      = null
     )
 )

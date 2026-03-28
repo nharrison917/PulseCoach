@@ -13,6 +13,12 @@ import com.pulsecoach.model.Session
  *
  * Blend formula: projection[t] = POLY_WEIGHT * polynomial[t] + HIST_WEIGHT * historical[t]
  * Only activates once [BLEND_MIN_SESSIONS] qualifying sessions are available.
+ *
+ * Phase 4 adds a typed fallback ladder via [getFilteredCurve]:
+ *   Tier 1: sessions matching both intensity type AND duration bucket (>= 10 required)
+ *   Tier 2: sessions matching intensity type only, any duration (>= 10 required)
+ *   Tier 3: polynomial only (returns null)
+ * Types are never mixed — Recovery/Steady/Push histories stay separate.
  */
 object HistoricalAverager {
 
@@ -28,6 +34,74 @@ object HistoricalAverager {
 
     private const val POLY_WEIGHT = 0.4f
     private const val HIST_WEIGHT = 0.6f
+
+    // Duration bucket boundaries (inclusive upper bounds in minutes)
+    private const val BUCKET_20_MAX = 25L
+    private const val BUCKET_30_MAX = 37L
+    private const val BUCKET_45_MAX = 52L
+    // >= 53 min → 60 bucket
+
+    /**
+     * Maps an actual session duration to the nearest standard bucket (20/30/45/60 min).
+     *
+     * Bucket boundaries:
+     *   ≤ 25 min  → 20
+     *   26-37 min → 30
+     *   38-52 min → 45
+     *   ≥ 53 min  → 60
+     *
+     * @param durationMs Actual session duration in milliseconds.
+     */
+    fun durationBucketFor(durationMs: Long): Int {
+        val durationMin = durationMs / 60_000L
+        return when {
+            durationMin <= BUCKET_20_MAX -> 20
+            durationMin <= BUCKET_30_MAX -> 30
+            durationMin <= BUCKET_45_MAX -> 45
+            else -> 60
+        }
+    }
+
+    /**
+     * Fallback ladder for typed projection — call this instead of [buildCurve] when
+     * the user has pre-classified their session with a [SessionType].
+     *
+     * [sessions] must already be filtered to the desired type (via
+     * [SessionRepository.getQualifyingSessionsByType]). This function then applies
+     * the duration-bucket filter internally:
+     *
+     *   Tier 1: sessions whose actual duration maps to [durationBucket] AND count >= 10
+     *   Tier 2: all [sessions] (same type, any duration)         AND count >= 10
+     *   Tier 3: returns null — caller falls back to polynomial-only
+     *
+     * @param sessions      Qualifying sessions pre-filtered to the desired SessionType.
+     * @param samples       All HR samples for those sessions (flat list).
+     * @param targetMinutes How many minutes the historical curve should cover.
+     * @param durationBucket The target's bucket: one of 20, 30, 45, or 60.
+     */
+    fun getFilteredCurve(
+        sessions: List<Session>,
+        samples: List<HrSample>,
+        targetMinutes: Int,
+        durationBucket: Int
+    ): List<Float>? {
+        // Tier 1: same intensity type + same duration bucket
+        val tier1 = sessions.filter { session ->
+            val actualMs = (session.endTimeMs ?: 0L) - session.startTimeMs
+            durationBucketFor(actualMs) == durationBucket
+        }
+        if (tier1.size >= BLEND_MIN_SESSIONS) {
+            return buildCurve(tier1, samples, targetMinutes)
+        }
+
+        // Tier 2: same intensity type, any duration
+        if (sessions.size >= BLEND_MIN_SESSIONS) {
+            return buildCurve(sessions, samples, targetMinutes)
+        }
+
+        // Tier 3: not enough typed history — caller uses polynomial only
+        return null
+    }
 
     /**
      * Builds a per-minute average calorie curve covering minutes 1..[targetMinutes].

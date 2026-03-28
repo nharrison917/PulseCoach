@@ -1,5 +1,6 @@
 package com.pulsecoach.ui
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -12,6 +13,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.Button
@@ -29,14 +31,17 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.pulsecoach.model.SessionType
 import com.pulsecoach.viewmodel.EvaluationResult
 import com.pulsecoach.viewmodel.EvaluationViewModel
 import com.pulsecoach.viewmodel.TestCurveData
+import com.pulsecoach.viewmodel.TypedMetrics
 import com.pulsecoach.viewmodel.WindowMetrics
 
 /**
@@ -166,8 +171,31 @@ fun EvaluationScreen(
                             modifier = Modifier.padding(vertical = 8.dp)
                         )
                     }
-                    Spacer(Modifier.height(24.dp))
                 }
+
+                // ── Panel 4: Per-type typed-blend accuracy ──────────────────────────
+                item {
+                    Spacer(Modifier.height(4.dp))
+                    SectionHeader("Panel 4 — Typed Blend Accuracy (Phase 4)")
+                    Text(
+                        text = "Per-type comparison using only same-type historical sessions " +
+                               "(getFilteredCurve). Requires 10+ sessions labeled per type.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(bottom = 8.dp)
+                    )
+                }
+                // One card per type — always show all three, data or placeholder
+                val typeMap = evalResult.typedBlendedMetrics?.associateBy { it.type }
+                items(SessionType.entries) { type ->
+                    val metrics = typeMap?.get(type)
+                    if (metrics != null) {
+                        TypedComparisonCard(metrics)
+                    } else {
+                        TypedPlaceholderCard(type)
+                    }
+                }
+                item { Spacer(Modifier.height(24.dp)) }
             }
         }
     }
@@ -281,6 +309,83 @@ private fun ComparisonTable(
                     Text("%.1f%%".format(blend.mape), style = MaterialTheme.typography.bodySmall, modifier = Modifier.weight(1f), textAlign = TextAlign.End)
                 }
             }
+        }
+    }
+}
+
+/**
+ * Card for one session type showing poly vs typed-blend accuracy side by side.
+ * The type label is tinted with the same color used in the intensity chip.
+ */
+@Composable
+private fun TypedComparisonCard(metrics: TypedMetrics) {
+    val typeColor = when (metrics.type) {
+        SessionType.RECOVERY -> Color(0xFF80B4FF)
+        SessionType.STEADY   -> Color(0xFF80E27E)
+        SessionType.PUSH     -> Color(0xFFFF8A65)
+    }
+    ElevatedCard(modifier = Modifier.fillMaxWidth()) {
+        Column(modifier = Modifier.padding(12.dp)) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier.padding(bottom = 8.dp)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .background(typeColor.copy(alpha = 0.25f), RoundedCornerShape(4.dp))
+                        .padding(horizontal = 8.dp, vertical = 2.dp)
+                ) {
+                    Text(
+                        text = metrics.type.displayLabel,
+                        style = MaterialTheme.typography.labelMedium,
+                        color = typeColor
+                    )
+                }
+                Text(
+                    text = "Poly vs Typed Blend",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            ComparisonTable(
+                polyMetrics = metrics.polyMetrics,
+                blendedMetrics = metrics.blendedMetrics
+            )
+        }
+    }
+}
+
+/** Placeholder card shown when a type lacks the 10+ sessions needed for typed blending. */
+@Composable
+private fun TypedPlaceholderCard(type: SessionType) {
+    val typeColor = when (type) {
+        SessionType.RECOVERY -> Color(0xFF80B4FF)
+        SessionType.STEADY   -> Color(0xFF80E27E)
+        SessionType.PUSH     -> Color(0xFFFF8A65)
+    }
+    ElevatedCard(modifier = Modifier.fillMaxWidth()) {
+        Row(
+            modifier = Modifier.padding(12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Box(
+                modifier = Modifier
+                    .background(typeColor.copy(alpha = 0.25f), RoundedCornerShape(4.dp))
+                    .padding(horizontal = 8.dp, vertical = 2.dp)
+            ) {
+                Text(
+                    text = type.displayLabel,
+                    style = MaterialTheme.typography.labelMedium,
+                    color = typeColor
+                )
+            }
+            Text(
+                text = "Insufficient history — label 10+ ${type.displayLabel} sessions.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
         }
     }
 }

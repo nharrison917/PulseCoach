@@ -9,6 +9,7 @@ import com.pulsecoach.model.BleConnectionState
 import com.pulsecoach.model.FoundDevice
 import com.pulsecoach.model.HrReading
 import com.pulsecoach.model.HrSample
+import com.pulsecoach.model.SessionType
 import com.pulsecoach.model.UserProfile
 import com.pulsecoach.model.ZoneConfig
 import com.pulsecoach.repository.SessionRepository
@@ -18,12 +19,14 @@ import com.pulsecoach.util.CalorieCalculator
 import com.pulsecoach.util.HistoricalAverager
 import com.pulsecoach.util.PolynomialProjector
 import com.pulsecoach.util.ZoneCalculator
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
@@ -38,6 +41,7 @@ import kotlinx.coroutines.launch
  * needs a Context. AndroidViewModel provides the Application context, which is safe
  * to hold long-term (unlike an Activity context, which would cause a memory leak).
  */
+@OptIn(ExperimentalCoroutinesApi::class)
 class LiveSessionViewModel(application: Application) : AndroidViewModel(application) {
 
     private val bleManager = PolarBleManager(application)
@@ -113,6 +117,20 @@ class LiveSessionViewModel(application: Application) : AndroidViewModel(applicat
     val targetDurationMinutes: StateFlow<Int> = _targetDurationMinutes.asStateFlow()
 
     /**
+     * Intensity classification chosen before the session starts.
+     * Null = no type selected (blending uses full unfiltered history).
+     * When set, the historical curve is drawn only from sessions of the same type,
+     * using the duration-bucket fallback ladder in [HistoricalAverager.getFilteredCurve].
+     */
+    private val _sessionType = MutableStateFlow<SessionType?>(null)
+    val sessionType: StateFlow<SessionType?> = _sessionType.asStateFlow()
+
+    /** Called from the UI intensity chips before recording starts. */
+    fun setSessionType(type: SessionType?) {
+        _sessionType.value = type
+    }
+
+    /**
      * Per-minute cumulative calorie data for the calorie chart.
      * One point added per minute while recording. Resets on each new session.
      * x = elapsed minutes, y = cumulative calories at that minute.
@@ -156,7 +174,23 @@ class LiveSessionViewModel(application: Application) : AndroidViewModel(applicat
 
     companion object {
         private const val MAX_HR_HISTORY = 60
+        /** How many times to retry after a signal drop before giving up. */
+        private const val MAX_RECONNECT_ATTEMPTS = 5
+        /** Gap between each reconnect attempt in milliseconds. */
+        private const val RECONNECT_DELAY_MS = 3_000L
     }
+
+    // --- BLE reconnection state ---
+    // lastConnectedDeviceId is set on the first successful connection and cleared only
+    // when the user explicitly taps Disconnect. A BLE signal drop leaves it set so
+    // the reconnect loop knows which device to retry.
+    private var lastConnectedDeviceId: String? = null
+    private var reconnectAttempt = 0
+    private var reconnectJob: Job? = null
+
+    /** True while an automatic reconnect is in progress after a signal drop. */
+    private val _isReconnecting = MutableStateFlow(false)
+    val isReconnecting: StateFlow<Boolean> = _isReconnecting.asStateFlow()
 
     private var scanJob: Job? = null
     private var hrJob: Job? = null
@@ -166,17 +200,39 @@ class LiveSessionViewModel(application: Application) : AndroidViewModel(applicat
         // This runs once at startup and again after seeding or finishing a real session.
         // getSamplesForSessions is a suspend call — safe here because the collect lambda
         // is itself a suspend block running inside a coroutine launched on viewModelScope.
+        // Rebuild the historical curve whenever the qualifying session set OR the
+        // intensity type changes. flatMapLatest cancels the previous inner flow and
+        // restarts with the new type filter — so changing the chip before recording
+        // immediately recalculates which sessions to use.
         viewModelScope.launch {
-            sessionRepository.getQualifyingSessions().collect { sessions ->
+            _sessionType.flatMapLatest { type ->
+                if (type == null) sessionRepository.getQualifyingSessions()
+                else sessionRepository.getQualifyingSessionsByType(type)
+            }.collect { sessions ->
                 _qualifyingSessionCount.value = sessions.size
                 if (sessions.size >= HistoricalAverager.BLEND_MIN_SESSIONS) {
                     val ids = sessions.map { it.id }
                     val allSamples = sessionRepository.getSamplesForSessions(ids)
-                    historicalCurve = HistoricalAverager.buildCurve(
-                        sessions = sessions,
-                        samples = allSamples,
-                        targetMinutes = 60   // cover the max selectable session duration
-                    )
+                    historicalCurve = if (_sessionType.value == null) {
+                        // No type filter: use full history as before
+                        HistoricalAverager.buildCurve(
+                            sessions = sessions,
+                            samples = allSamples,
+                            targetMinutes = 60
+                        )
+                    } else {
+                        // Typed: apply the duration-bucket fallback ladder.
+                        // Use the current target duration to determine the bucket.
+                        val bucket = HistoricalAverager.durationBucketFor(
+                            _targetDurationMinutes.value * 60_000L
+                        )
+                        HistoricalAverager.getFilteredCurve(
+                            sessions = sessions,
+                            samples = allSamples,
+                            targetMinutes = 60,
+                            durationBucket = bucket
+                        )
+                    }
                 } else {
                     historicalCurve = null
                 }
@@ -186,8 +242,16 @@ class LiveSessionViewModel(application: Application) : AndroidViewModel(applicat
         viewModelScope.launch {
             connectionState.collect { state ->
                 when (state) {
-                    is BleConnectionState.Connected -> startHrStream(state.deviceId)
-                    else -> {
+                    is BleConnectionState.Connected -> {
+                        // Successful (re)connection — reset reconnect counters and start data.
+                        lastConnectedDeviceId = state.deviceId
+                        reconnectAttempt = 0
+                        reconnectJob?.cancel()
+                        reconnectJob = null
+                        _isReconnecting.value = false
+                        startHrStream(state.deviceId)
+                    }
+                    is BleConnectionState.Disconnected -> {
                         hrJob?.cancel()
                         hrJob = null
                         _latestHr.value = null
@@ -196,6 +260,32 @@ class LiveSessionViewModel(application: Application) : AndroidViewModel(applicat
                         _currentCalPerMinute.value = 0f
                         // Note: do NOT auto-stop recording here — a signal drop mid-session
                         // should not discard the session. The user taps Stop explicitly.
+
+                        val deviceId = lastConnectedDeviceId
+                        if (deviceId != null && reconnectAttempt < MAX_RECONNECT_ATTEMPTS) {
+                            // Schedule the next reconnect attempt after a short delay.
+                            reconnectAttempt++
+                            _isReconnecting.value = true
+                            reconnectJob?.cancel()
+                            reconnectJob = viewModelScope.launch {
+                                delay(RECONNECT_DELAY_MS)
+                                bleManager.connectToDevice(deviceId)
+                            }
+                        } else if (deviceId != null) {
+                            // All attempts exhausted — give up and show normal Disconnect UI.
+                            lastConnectedDeviceId = null
+                            reconnectAttempt = 0
+                            _isReconnecting.value = false
+                        }
+                        // If deviceId is null, user disconnected voluntarily — no reconnect.
+                    }
+                    else -> {
+                        hrJob?.cancel()
+                        hrJob = null
+                        _latestHr.value = null
+                        _currentZone.value = 0
+                        _hrHistory.value = emptyList()
+                        _currentCalPerMinute.value = 0f
                     }
                 }
             }
@@ -230,8 +320,15 @@ class LiveSessionViewModel(application: Application) : AndroidViewModel(applicat
         bleManager.connectToDevice(deviceId)
     }
 
-    /** Disconnects from the current device. */
+    /** Disconnects from the current device and suppresses any pending reconnect attempt. */
     fun disconnect(deviceId: String) {
+        // Clear lastConnectedDeviceId BEFORE disconnecting so that the Disconnected
+        // callback the SDK fires does not trigger an auto-reconnect.
+        reconnectJob?.cancel()
+        reconnectJob = null
+        lastConnectedDeviceId = null
+        reconnectAttempt = 0
+        _isReconnecting.value = false
         hrJob?.cancel()
         hrJob = null
         bleManager.disconnectFromDevice(deviceId)
@@ -255,7 +352,10 @@ class LiveSessionViewModel(application: Application) : AndroidViewModel(applicat
         if (userProfile == null) return
 
         viewModelScope.launch {
-            val sessionId = sessionRepository.startSession(System.currentTimeMillis())
+            val sessionId = sessionRepository.startSession(
+                startTimeMs = System.currentTimeMillis(),
+                sessionType = _sessionType.value
+            )
             activeSessionId = sessionId
             cumulativeCalories = 0f
             totalBpmAccumulator = 0L
@@ -280,12 +380,19 @@ class LiveSessionViewModel(application: Application) : AndroidViewModel(applicat
 
         val avgBpm = if (sampleCount > 0) totalBpmAccumulator.toFloat() / sampleCount else 0f
 
+        // Auto-classify: map actual recording duration to the nearest bucket (20/30/45/60 min).
+        // sampleCount ≈ actual seconds (H10 sends one sample per second), so this gives a
+        // reliable duration even if the user ran a different length than their intent.
+        val actualDurationMs = sampleCount * 1000L
+        val bucketMinutes = HistoricalAverager.durationBucketFor(actualDurationMs)
+
         viewModelScope.launch {
             sessionRepository.finishSession(
                 sessionId = sessionId,
                 endTimeMs = System.currentTimeMillis(),
                 totalCalories = cumulativeCalories,
-                avgBpm = avgBpm
+                avgBpm = avgBpm,
+                targetDurationMs = bucketMinutes * 60_000L
             )
             activeSessionId = null
             _isRecording.value = false
@@ -382,6 +489,7 @@ class LiveSessionViewModel(application: Application) : AndroidViewModel(applicat
     // leaving the BLE radio resource open after the screen is gone.
     override fun onCleared() {
         super.onCleared()
+        reconnectJob?.cancel()
         bleManager.shutdown()
     }
 }

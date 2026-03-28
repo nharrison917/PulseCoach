@@ -34,6 +34,7 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -63,6 +64,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.pulsecoach.model.BleConnectionState
 import com.pulsecoach.model.FoundDevice
 import com.pulsecoach.model.HrReading
+import com.pulsecoach.model.SessionType
 import com.pulsecoach.util.ZoneCalculator
 import com.pulsecoach.viewmodel.LiveSessionViewModel
 
@@ -116,6 +118,8 @@ fun LiveSessionScreen(
     val actualCalorieCurve       by viewModel.actualCalorieCurve.collectAsStateWithLifecycle()
     val projectedCalorie         by viewModel.projectedCalorieCurve.collectAsStateWithLifecycle()
     val qualifyingSessionCount   by viewModel.qualifyingSessionCount.collectAsStateWithLifecycle()
+    val sessionType              by viewModel.sessionType.collectAsStateWithLifecycle()
+    val isReconnecting           by viewModel.isReconnecting.collectAsStateWithLifecycle()
 
     Scaffold(
         topBar = {
@@ -144,7 +148,8 @@ fun LiveSessionScreen(
             } else {
                 when (val state = connectionState) {
                     is BleConnectionState.Disconnected ->
-                        DisconnectedContent(onScanClick = viewModel::startScan)
+                        if (isReconnecting) ReconnectingContent(isRecording = isRecording)
+                        else DisconnectedContent(onScanClick = viewModel::startScan)
 
                     is BleConnectionState.Scanning ->
                         ScanningContent(
@@ -154,7 +159,8 @@ fun LiveSessionScreen(
                         )
 
                     is BleConnectionState.Connecting ->
-                        ConnectingContent(deviceId = state.deviceId)
+                        if (isReconnecting) ReconnectingContent(isRecording = isRecording)
+                        else ConnectingContent(deviceId = state.deviceId)
 
                     is BleConnectionState.Connected ->
                         ConnectedContent(
@@ -172,7 +178,9 @@ fun LiveSessionScreen(
                             actualCalorieCurve = actualCalorieCurve,
                             projectedCalorieCurve = projectedCalorie,
                             isBlended = qualifyingSessionCount >= 10,
+                            sessionType = sessionType,
                             onTargetDurationChange = viewModel::setTargetDuration,
+                            onSessionTypeChange = viewModel::setSessionType,
                             onStartRecording = viewModel::startRecording,
                             onStopRecording = viewModel::stopRecording,
                             onDisconnectClick = { viewModel.disconnect(state.deviceId) }
@@ -318,6 +326,31 @@ private fun ConnectingContent(deviceId: String) {
     }
 }
 
+/**
+ * Shown when the H10 drops signal mid-session and the app is retrying automatically.
+ * If a recording is in progress, a note reassures the user it hasn't been discarded.
+ */
+@Composable
+private fun ReconnectingContent(isRecording: Boolean) {
+    Column(
+        modifier = Modifier.fillMaxSize(),
+        verticalArrangement = Arrangement.Center,
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        CircularProgressIndicator()
+        Spacer(Modifier.height(16.dp))
+        Text("Signal lost — reconnecting...", style = MaterialTheme.typography.bodyLarge)
+        if (isRecording) {
+            Spacer(Modifier.height(8.dp))
+            Text(
+                text = "Recording is paused. It will resume automatically.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+    }
+}
+
 @Composable
 private fun ConnectedContent(
     hr: HrReading?,
@@ -334,7 +367,9 @@ private fun ConnectedContent(
     actualCalorieCurve: List<Pair<Float, Float>>,
     projectedCalorieCurve: List<Pair<Float, Float>>?,
     isBlended: Boolean,
+    sessionType: SessionType?,
     onTargetDurationChange: (Int) -> Unit,
+    onSessionTypeChange: (SessionType?) -> Unit,
     onStartRecording: () -> Unit,
     onStopRecording: () -> Unit,
     onDisconnectClick: () -> Unit
@@ -393,7 +428,7 @@ private fun ConnectedContent(
             )
         }
 
-        // Duration picker — shown only before recording starts
+        // Duration picker and intensity picker — both hidden once recording starts
         if (!isRecording) {
             DurationPicker(
                 selectedMinutes = targetDurationMinutes,
@@ -401,6 +436,13 @@ private fun ConnectedContent(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 16.dp, vertical = 4.dp)
+            )
+            IntensityPicker(
+                selectedType = sessionType,
+                onSelect = onSessionTypeChange,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 2.dp)
             )
         }
 
@@ -570,11 +612,53 @@ private fun DurationPicker(
             style = MaterialTheme.typography.labelMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
-        listOf(30, 45, 60).forEach { minutes ->
+        listOf(20, 30, 45, 60).forEach { minutes ->
             FilterChip(
                 selected = selectedMinutes == minutes,
                 onClick = { onSelect(minutes) },
                 label = { Text("${minutes}m") }
+            )
+        }
+    }
+}
+
+/**
+ * Three filter chips for selecting session intensity before recording starts.
+ * Tapping the already-selected chip deselects it (returns to null = no type).
+ * Colors match the zone palette: Recovery=blue, Steady=green, Push=orange.
+ */
+@Composable
+private fun IntensityPicker(
+    selectedType: SessionType?,
+    onSelect: (SessionType?) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Row(
+        modifier = modifier,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(
+            text = "Intensity:",
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        SessionType.entries.forEach { type ->
+            val chipColor = when (type) {
+                SessionType.RECOVERY -> Color(0xFF80B4FF)  // Zone 1 blue
+                SessionType.STEADY   -> Color(0xFF80E27E)  // Zone 2 green
+                SessionType.PUSH     -> Color(0xFFFF8A65)  // Zone 4 orange
+            }
+            val isSelected = selectedType == type
+            FilterChip(
+                selected = isSelected,
+                // Tapping the selected chip again deselects it (null = no intent set)
+                onClick = { onSelect(if (isSelected) null else type) },
+                label = { Text(type.displayLabel) },
+                colors = FilterChipDefaults.filterChipColors(
+                    selectedContainerColor = chipColor.copy(alpha = 0.25f),
+                    selectedLabelColor = chipColor
+                )
             )
         }
     }
@@ -679,7 +763,9 @@ private fun PreviewConnectedIdle() {
             actualCalorieCurve = emptyList(),
             projectedCalorieCurve = null,
             isBlended = false,
+            sessionType = SessionType.STEADY,
             onTargetDurationChange = {},
+            onSessionTypeChange = {},
             onStartRecording = {},
             onStopRecording = {},
             onDisconnectClick = {}
@@ -709,7 +795,9 @@ private fun PreviewConnectedRecording() {
             actualCalorieCurve = (0..15).map { i -> i.toFloat() to (i * 9f + 0.05f * i * i) },
             projectedCalorieCurve = null,
             isBlended = false,
+            sessionType = null,
             onTargetDurationChange = {},
+            onSessionTypeChange = {},
             onStartRecording = {},
             onStopRecording = {},
             onDisconnectClick = {}

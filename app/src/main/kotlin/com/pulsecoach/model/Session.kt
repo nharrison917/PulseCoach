@@ -12,5 +12,6 @@ data class Session(
     val targetDurationMs: Long?,
     val totalCalories: Float,
     val avgBpm: Float,
-    val notes: String
+    val notes: String,
+    val sessionType: SessionType?  // null = unclassified ("--")
 )

@@ -7,6 +7,7 @@ import com.pulsecoach.data.PulseCoachDatabase
 import com.pulsecoach.model.BiologicalSex
 import com.pulsecoach.model.HrSample
 import com.pulsecoach.model.Session
+import com.pulsecoach.model.SessionType
 import com.pulsecoach.model.UserProfile
 import com.pulsecoach.repository.SessionRepository
 import com.pulsecoach.repository.UserProfileRepository
@@ -37,6 +38,17 @@ data class TestCurveData(
     val projected: List<Pair<Float, Float>>?  // null if projection could not be computed
 )
 
+/**
+ * Poly-only vs typed-blend accuracy for one session intensity type.
+ * [polyMetrics] is computed over only the test sessions assigned to [type],
+ * so the comparison with [blendedMetrics] is apples-to-apples.
+ */
+data class TypedMetrics(
+    val type: SessionType,
+    val polyMetrics: List<WindowMetrics>,
+    val blendedMetrics: List<WindowMetrics>
+)
+
 /** Everything the EvaluationScreen needs. */
 data class EvaluationResult(
     /** Polynomial-only MAE/MAPE at each observation window (5, 10, 15, 20 min). */
@@ -44,7 +56,12 @@ data class EvaluationResult(
     /** Blended MAE/MAPE — only populated when >= 10 qualifying sessions are in the database. */
     val blendedWindowMetrics: List<WindowMetrics>?,
     /** First 5 test sessions for the overlay chart. */
-    val testCurves: List<TestCurveData>
+    val testCurves: List<TestCurveData>,
+    /**
+     * Per-type poly vs typed-blend accuracy. Only contains types that have >= 10 labeled
+     * sessions in the database. Null if no type meets the threshold.
+     */
+    val typedBlendedMetrics: List<TypedMetrics>?
 )
 
 // --- ViewModel ---
@@ -76,7 +93,16 @@ class EvaluationViewModel(application: Application) : AndroidViewModel(applicati
         125 to 52, 147 to 42
     )
 
-    private val observationWindows = listOf(5, 10, 15, 20)
+    // SessionType assigned to each test session — mirrors testParams ordering.
+    // 125 bpm = easy pace (RECOVERY), 147 bpm = tempo (STEADY), 165 bpm = threshold (PUSH).
+    private val testParamTypes = listOf(
+        SessionType.RECOVERY, SessionType.RECOVERY, SessionType.RECOVERY,
+        SessionType.STEADY,   SessionType.STEADY,   SessionType.STEADY,
+        SessionType.PUSH,     SessionType.PUSH,
+        SessionType.RECOVERY, SessionType.STEADY
+    )
+
+    private val observationWindows = listOf(10, 15, 20)
 
     /**
      * Loads qualifying sessions from Room, generates 10 in-memory test sessions,
@@ -86,12 +112,16 @@ class EvaluationViewModel(application: Application) : AndroidViewModel(applicati
         if (_isRunning.value) return
         viewModelScope.launch {
             _isRunning.value = true
-            // Room query on IO dispatcher, then CPU work on Default.
-            val qualifyingSessions = withContext(Dispatchers.IO) {
-                sessionRepository.getQualifyingSessions().first()
+            // Load all qualifying sessions + per-type subsets in one IO hop.
+            val (qualifyingSessions, typedSessions) = withContext(Dispatchers.IO) {
+                val all = sessionRepository.getQualifyingSessions().first()
+                val typed = SessionType.entries.associateWith { type ->
+                    sessionRepository.getQualifyingSessionsByType(type).first()
+                }
+                all to typed
             }
             _result.value = withContext(Dispatchers.Default) {
-                compute(qualifyingSessions)
+                compute(qualifyingSessions, typedSessions)
             }
             _isRunning.value = false
         }
@@ -101,7 +131,10 @@ class EvaluationViewModel(application: Application) : AndroidViewModel(applicati
     // Internal computation
     // ---------------------------------------------------------------------------
 
-    private suspend fun compute(qualifyingSessions: List<Session>): EvaluationResult {
+    private suspend fun compute(
+        qualifyingSessions: List<Session>,
+        typedSessions: Map<SessionType, List<Session>>
+    ): EvaluationResult {
         val profile = loadProfile()
 
         // Generate 10 held-out sessions in memory with fixed seeds
@@ -127,6 +160,9 @@ class EvaluationViewModel(application: Application) : AndroidViewModel(applicati
             computeBlendedMetrics(qualifyingSessions, testSessions, actualCurves)
         } else null
 
+        // Panel 4 — per-type typed-blend metrics
+        val typedMetrics = computeTypedBlendedMetrics(typedSessions, testSessions, actualCurves)
+
         // Panel 1 — first 5 test sessions for the overlay chart (projected at 10-min mark)
         val testCurves = actualCurves.take(5).mapIndexed { i, curve ->
             val durationMin = testSessions[i].durationMs / 60_000f
@@ -140,7 +176,8 @@ class EvaluationViewModel(application: Application) : AndroidViewModel(applicati
         return EvaluationResult(
             windowMetrics = polyMetrics,
             blendedWindowMetrics = blendedMetrics,
-            testCurves = testCurves
+            testCurves = testCurves,
+            typedBlendedMetrics = typedMetrics
         )
     }
 
@@ -196,6 +233,67 @@ class EvaluationViewModel(application: Application) : AndroidViewModel(applicati
             }
             buildMetrics(window, errorPairs)
         }
+    }
+
+    /**
+     * Per-type accuracy: for each SessionType with >= 10 labeled sessions in Room,
+     * computes poly-only and typed-blend metrics over only the test sessions of that type.
+     * Returns null if no type meets the threshold.
+     */
+    private suspend fun computeTypedBlendedMetrics(
+        typedSessions: Map<SessionType, List<Session>>,
+        testSessions: List<SyntheticSessionGenerator.Result>,
+        actualCurves: List<List<Pair<Float, Float>>>
+    ): List<TypedMetrics>? {
+        val result = mutableListOf<TypedMetrics>()
+
+        for (type in SessionType.entries) {
+            val sessionsForType = typedSessions[type] ?: emptyList()
+            if (sessionsForType.size < HistoricalAverager.BLEND_MIN_SESSIONS) continue
+
+            // Subset of test sessions assigned this type
+            val indices = testParamTypes.indices.filter { testParamTypes[it] == type }
+            val typeTestSessions = indices.map { testSessions[it] }
+            val typeActualCurves = indices.map { actualCurves[it] }
+
+            // Poly-only metrics for this type's test sessions (fair baseline)
+            val polyMetrics = observationWindows.map { window ->
+                computePolyWindowMetrics(window, typeTestSessions, typeActualCurves)
+            }
+
+            // Load samples for the typed historical sessions
+            val sampleIds = sessionsForType.map { it.id }
+            val samples = withContext(Dispatchers.IO) {
+                sessionRepository.getSamplesForSessions(sampleIds)
+            }
+
+            // Typed-blend metrics using getFilteredCurve()
+            val blendedMetrics = observationWindows.map { window ->
+                val errorPairs = typeTestSessions.zip(typeActualCurves).mapNotNull { (session, curve) ->
+                    val durationMin = session.durationMs / 60_000f
+                    val observedPoints = curve.filter { (min, _) -> min <= window.toFloat() }
+                    if (observedPoints.size < 3) return@mapNotNull null
+
+                    val polyProjection = PolynomialProjector.project(observedPoints, durationMin)
+                        ?: return@mapNotNull null
+
+                    val targetMin = (durationMin + 0.5f).toInt()
+                    val durationBucket = HistoricalAverager.durationBucketFor(session.durationMs)
+                    val historical = HistoricalAverager.getFilteredCurve(
+                        sessionsForType, samples, targetMin, durationBucket
+                    ) ?: return@mapNotNull null
+
+                    val blended = HistoricalAverager.blend(polyProjection, historical)
+                    val projectedFinal = blended.lastOrNull()?.second ?: return@mapNotNull null
+                    Pair(projectedFinal, session.totalCalories)
+                }
+                buildMetrics(window, errorPairs)
+            }
+
+            result.add(TypedMetrics(type, polyMetrics, blendedMetrics))
+        }
+
+        return if (result.isEmpty()) null else result
     }
 
     /** Computes MAE and MAPE from a list of (projected, actual) calorie pairs. */
