@@ -59,7 +59,10 @@ class LiveSessionViewModel(application: Application) : AndroidViewModel(applicat
 
     /** Active zone thresholds — stays in sync with whatever the user last saved. */
     val zoneConfig: StateFlow<ZoneConfig> = zoneRepository.zoneConfig
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), ZoneConfig.defaults)
+        // Eagerly (not WhileSubscribed) because the recording loop reads zoneConfig.value
+        // directly and needs the Room query active from the moment the ViewModel is created,
+        // regardless of whether any UI composable has subscribed to this StateFlow.
+        .stateIn(viewModelScope, SharingStarted.Eagerly, ZoneConfig.defaults)
 
     /** Mirrors the BLE connection state from PolarBleManager. */
     val connectionState: StateFlow<BleConnectionState> = bleManager.connectionState

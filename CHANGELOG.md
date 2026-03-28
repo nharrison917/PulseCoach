@@ -4,6 +4,20 @@ All notable changes to PulseCoach are documented here, organized by development 
 
 ---
 
+## Bug Fix — Zone Classification Using Stale Defaults
+
+- `LiveSessionViewModel.zoneConfig` StateFlow was started with `SharingStarted.WhileSubscribed`,
+  which only activates the upstream Room query while a UI composable subscribes to it.
+  No composable in `LiveSessionScreen` collected `zoneConfig` directly, so the Flow never
+  started and `zoneConfig.value` remained permanently at `ZoneConfig.defaults`.
+- At runtime this caused every HR reading to be classified against the hardcoded default
+  thresholds (e.g. `zone2MaxBpm = 135`) rather than the user's saved thresholds, misclassifying
+  zones for any user who had customised their zone settings.
+- Fixed by changing to `SharingStarted.Eagerly` so the Room query starts at ViewModel
+  creation and the saved config is loaded before any HR data arrives.
+
+---
+
 ## Phase 7 — Projection Calibration
 *Commits: `2df01c9`, `445d8f1`, `2fee918`*
 
