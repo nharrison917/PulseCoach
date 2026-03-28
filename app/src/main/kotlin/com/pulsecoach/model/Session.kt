@@ -13,5 +13,10 @@ data class Session(
     val totalCalories: Float,
     val avgBpm: Float,
     val notes: String,
-    val sessionType: SessionType?  // null = unclassified ("--")
+    val sessionType: SessionType?, // null = unclassified ("--")
+    val zone1Seconds: Int = 0,
+    val zone2Seconds: Int = 0,
+    val zone3Seconds: Int = 0,
+    val zone4Seconds: Int = 0,
+    val zone5Seconds: Int = 0
 )

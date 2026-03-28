@@ -55,7 +55,8 @@ class SessionRepository(
         endTimeMs: Long,
         totalCalories: Float,
         avgBpm: Float,
-        targetDurationMs: Long? = null
+        targetDurationMs: Long? = null,
+        zoneSplits: IntArray = IntArray(6) // index 0 unused; zones 1–5 map to indices 1–5
     ) {
         // Fetch the existing row so we preserve fields we aren't updating (startTimeMs, notes, etc.)
         val existing = sessionDao.getSessionById(sessionId) ?: return
@@ -64,7 +65,12 @@ class SessionRepository(
                 endTimeMs = endTimeMs,
                 totalCalories = totalCalories,
                 avgBpm = avgBpm,
-                targetDurationMs = targetDurationMs ?: existing.targetDurationMs
+                targetDurationMs = targetDurationMs ?: existing.targetDurationMs,
+                zone1Seconds = zoneSplits.getOrElse(1) { 0 },
+                zone2Seconds = zoneSplits.getOrElse(2) { 0 },
+                zone3Seconds = zoneSplits.getOrElse(3) { 0 },
+                zone4Seconds = zoneSplits.getOrElse(4) { 0 },
+                zone5Seconds = zoneSplits.getOrElse(5) { 0 }
             )
         )
     }
@@ -176,7 +182,12 @@ class SessionRepository(
         totalCalories = totalCalories,
         avgBpm = avgBpm,
         notes = notes,
-        sessionType = SessionType.fromString(sessionType)
+        sessionType = SessionType.fromString(sessionType),
+        zone1Seconds = zone1Seconds,
+        zone2Seconds = zone2Seconds,
+        zone3Seconds = zone3Seconds,
+        zone4Seconds = zone4Seconds,
+        zone5Seconds = zone5Seconds
     )
 
     private fun HrSampleEntity.toDomain() = HrSample(

@@ -1,5 +1,6 @@
 package com.pulsecoach.data
 
+import androidx.room.ColumnInfo
 import androidx.room.Entity
 import androidx.room.PrimaryKey
 
@@ -22,5 +23,12 @@ data class SessionEntity(
     val totalCalories: Float,
     val avgBpm: Float,
     val notes: String,
-    val sessionType: String?       // null = unclassified; stores SessionType.name
+    val sessionType: String?,      // null = unclassified; stores SessionType.name
+    // Seconds spent in each HR zone for this session. Added in DB v4.
+    // @ColumnInfo defaultValue must match the SQL DEFAULT so Room's schema hash stays consistent.
+    @ColumnInfo(defaultValue = "0") val zone1Seconds: Int = 0,
+    @ColumnInfo(defaultValue = "0") val zone2Seconds: Int = 0,
+    @ColumnInfo(defaultValue = "0") val zone3Seconds: Int = 0,
+    @ColumnInfo(defaultValue = "0") val zone4Seconds: Int = 0,
+    @ColumnInfo(defaultValue = "0") val zone5Seconds: Int = 0
 )

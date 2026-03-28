@@ -21,6 +21,7 @@ import com.pulsecoach.util.PolynomialProjector
 import com.pulsecoach.util.ZoneCalculator
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -108,6 +109,16 @@ class LiveSessionViewModel(application: Application) : AndroidViewModel(applicat
      */
     private val _sessionElapsedSeconds = MutableStateFlow(0)
     val sessionElapsedSeconds: StateFlow<Int> = _sessionElapsedSeconds.asStateFlow()
+
+    /**
+     * Seconds spent in each HR zone during the current session.
+     * Key = zone number (1–5), value = elapsed seconds. Resets on each new session.
+     * Backed by a plain IntArray for cheap mutation; emits a copy to the StateFlow
+     * once per HR sample (= once per second on the H10).
+     */
+    private val zoneSecondsArray = IntArray(6) // index 0 unused; zones 1–5
+    private val _zoneSeconds = MutableStateFlow(emptyMap<Int, Int>())
+    val zoneSeconds: StateFlow<Map<Int, Int>> = _zoneSeconds.asStateFlow()
 
     /**
      * Target session duration selected by the user before recording starts.
@@ -365,6 +376,8 @@ class LiveSessionViewModel(application: Application) : AndroidViewModel(applicat
             _sessionAvgBpm.value = 0f
             _sessionAvgCalPerMinute.value = 0f
             _sessionElapsedSeconds.value = 0
+            zoneSecondsArray.fill(0)
+            _zoneSeconds.value = emptyMap()
             _actualCalorieCurve.value = emptyList()
             _projectedCalorieCurve.value = null
             _isRecording.value = true
@@ -392,7 +405,9 @@ class LiveSessionViewModel(application: Application) : AndroidViewModel(applicat
                 endTimeMs = System.currentTimeMillis(),
                 totalCalories = cumulativeCalories,
                 avgBpm = avgBpm,
-                targetDurationMs = bucketMinutes * 60_000L
+                targetDurationMs = bucketMinutes * 60_000L,
+                // Copy the array so the repository write isn't racing with any reset
+                zoneSplits = zoneSecondsArray.copyOf()
             )
             activeSessionId = null
             _isRecording.value = false
@@ -438,6 +453,13 @@ class LiveSessionViewModel(application: Application) : AndroidViewModel(applicat
                         _sessionAvgBpm.value = totalBpmAccumulator.toFloat() / sampleCount
                         _sessionAvgCalPerMinute.value = cumulativeCalories * 60f / sampleCount
                         _sessionElapsedSeconds.value = sampleCount
+
+                        // Accumulate zone time: zone is already computed above from this reading's bpm.
+                        if (zone in 1..5) {
+                            zoneSecondsArray[zone]++
+                            // Emit a new map copy; Map is immutable so the UI always sees a fresh reference.
+                            _zoneSeconds.value = (1..5).associateWith { zoneSecondsArray[it] }
+                        }
 
                         // Calorie curve: add one point per elapsed minute.
                         // sampleCount / 60 gives the completed-minute count (integer division).

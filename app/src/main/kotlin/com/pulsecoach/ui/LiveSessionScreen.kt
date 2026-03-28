@@ -120,6 +120,7 @@ fun LiveSessionScreen(
     val qualifyingSessionCount   by viewModel.qualifyingSessionCount.collectAsStateWithLifecycle()
     val sessionType              by viewModel.sessionType.collectAsStateWithLifecycle()
     val isReconnecting           by viewModel.isReconnecting.collectAsStateWithLifecycle()
+    val zoneSeconds              by viewModel.zoneSeconds.collectAsStateWithLifecycle()
 
     Scaffold(
         topBar = {
@@ -179,6 +180,7 @@ fun LiveSessionScreen(
                             projectedCalorieCurve = projectedCalorie,
                             isBlended = qualifyingSessionCount >= 10,
                             sessionType = sessionType,
+                            zoneSeconds = zoneSeconds,
                             onTargetDurationChange = viewModel::setTargetDuration,
                             onSessionTypeChange = viewModel::setSessionType,
                             onStartRecording = viewModel::startRecording,
@@ -368,6 +370,7 @@ private fun ConnectedContent(
     projectedCalorieCurve: List<Pair<Float, Float>>?,
     isBlended: Boolean,
     sessionType: SessionType?,
+    zoneSeconds: Map<Int, Int>,
     onTargetDurationChange: (Int) -> Unit,
     onSessionTypeChange: (SessionType?) -> Unit,
     onStartRecording: () -> Unit,
@@ -414,6 +417,16 @@ private fun ConnectedContent(
 
         // Zone indicator strip
         ZoneStrip(currentZone = zone, modifier = Modifier.fillMaxWidth().height(48.dp))
+
+        // Zone time summary — only shown while recording so it doesn't linger after session ends
+        if (isRecording) {
+            ZoneTimeSummary(
+                zoneSeconds = zoneSeconds,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 8.dp, vertical = 4.dp)
+            )
+        }
 
         // Calorie chart — only shown while recording and once 2+ data points exist
         if (isRecording && actualCalorieCurve.size >= 2) {
@@ -664,6 +677,74 @@ private fun IntensityPicker(
     }
 }
 
+/**
+ * Displays elapsed time per HR zone as a proportional bar with labels below.
+ * Only rendered while a session is active. Each zone's bar width is proportional
+ * to seconds spent in that zone relative to total recorded time.
+ */
+@Composable
+private fun ZoneTimeSummary(
+    zoneSeconds: Map<Int, Int>,
+    modifier: Modifier = Modifier
+) {
+    // Format seconds as M:SS for concise display
+    fun formatTime(seconds: Int): String {
+        val m = seconds / 60
+        val s = seconds % 60
+        return "$m:${s.toString().padStart(2, '0')}"
+    }
+
+    Column(modifier = modifier) {
+        // Proportional bar row — each zone gets a width slice based on its share of total time
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(8.dp)
+                .clip(RoundedCornerShape(4.dp))
+        ) {
+            for (zone in 1..5) {
+                val seconds = zoneSeconds[zone] ?: 0
+                // weight() must be > 0 — Compose throws if weight is exactly 0.
+                // Adding 1 to each zone ensures a positive weight always, and the +1 bias
+                // becomes negligible as session time accumulates.
+                val weight = (seconds + 1).toFloat()
+                Box(
+                    modifier = Modifier
+                        .weight(weight)
+                        .fillMaxHeight()
+                        .background(ZoneCalculator.colorForZone(zone).copy(
+                            alpha = if (seconds > 0) 1f else 0.2f
+                        ))
+                )
+            }
+        }
+        Spacer(modifier = Modifier.height(4.dp))
+        // Label row — zone name and elapsed time for each zone
+        Row(modifier = Modifier.fillMaxWidth()) {
+            for (zone in 1..5) {
+                val seconds = zoneSeconds[zone] ?: 0
+                Column(
+                    modifier = Modifier.weight(1f),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Text(
+                        text = "Z$zone",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = ZoneCalculator.colorForZone(zone)
+                    )
+                    Text(
+                        text = formatTime(seconds),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurface.copy(
+                            alpha = if (seconds > 0) 1f else 0.4f
+                        )
+                    )
+                }
+            }
+        }
+    }
+}
+
 /** Five colored boxes representing the five zones; current zone is at full opacity. */
 @Composable
 private fun ZoneStrip(currentZone: Int, modifier: Modifier = Modifier) {
@@ -764,6 +845,7 @@ private fun PreviewConnectedIdle() {
             projectedCalorieCurve = null,
             isBlended = false,
             sessionType = SessionType.STEADY,
+            zoneSeconds = emptyMap(),
             onTargetDurationChange = {},
             onSessionTypeChange = {},
             onStartRecording = {},
@@ -796,6 +878,7 @@ private fun PreviewConnectedRecording() {
             projectedCalorieCurve = null,
             isBlended = false,
             sessionType = null,
+            zoneSeconds = mapOf(1 to 120, 2 to 480, 3 to 600, 4 to 180, 5 to 6),
             onTargetDurationChange = {},
             onSessionTypeChange = {},
             onStartRecording = {},

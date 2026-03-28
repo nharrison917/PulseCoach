@@ -11,12 +11,14 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.draw.clip
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Close
@@ -58,6 +60,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.pulsecoach.BuildConfig
 import com.pulsecoach.model.Session
 import com.pulsecoach.model.SessionType
+import com.pulsecoach.util.ZoneCalculator
 import com.pulsecoach.viewmodel.ExportResult
 import com.pulsecoach.viewmodel.SeedingState
 import com.pulsecoach.viewmodel.SessionHistoryViewModel
@@ -402,6 +405,34 @@ private fun SessionCard(
             Spacer(Modifier.height(8.dp))
             HorizontalDivider()
             Spacer(Modifier.height(8.dp))
+
+            // Zone split bar — only shown when the session has zone data (skips pre-v4 sessions)
+            val zoneTotals = listOf(
+                session.zone1Seconds, session.zone2Seconds, session.zone3Seconds,
+                session.zone4Seconds, session.zone5Seconds
+            )
+            if (zoneTotals.any { it > 0 }) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(6.dp)
+                        .clip(RoundedCornerShape(3.dp))
+                ) {
+                    zoneTotals.forEachIndexed { index, seconds ->
+                        val zone = index + 1
+                        // +1 keeps weight positive for zones with zero time (Compose requires weight > 0)
+                        Box(
+                            modifier = Modifier
+                                .weight((seconds + 1).toFloat())
+                                .fillMaxHeight()
+                                .background(ZoneCalculator.colorForZone(zone).copy(
+                                    alpha = if (seconds > 0) 1f else 0.15f
+                                ))
+                        )
+                    }
+                }
+                Spacer(Modifier.height(8.dp))
+            }
 
             Row(
                 modifier = Modifier.fillMaxWidth(),

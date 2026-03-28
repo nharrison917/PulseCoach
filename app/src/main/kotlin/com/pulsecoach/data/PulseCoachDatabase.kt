@@ -25,7 +25,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         SessionEntity::class,
         HrSampleEntity::class
     ],
-    version = 3,
+    version = 4,
     exportSchema = false
 )
 abstract class PulseCoachDatabase : RoomDatabase() {
@@ -98,6 +98,22 @@ abstract class PulseCoachDatabase : RoomDatabase() {
             }
         }
 
+        /**
+         * Migration from v3 to v4.
+         * Adds per-zone elapsed-second columns to the sessions table.
+         * SQLite DEFAULT 0 means all existing sessions will show zero for every zone,
+         * which is correct — we have no historical zone data for them.
+         */
+        private val MIGRATION_3_4 = object : Migration(3, 4) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE `sessions` ADD COLUMN `zone1Seconds` INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE `sessions` ADD COLUMN `zone2Seconds` INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE `sessions` ADD COLUMN `zone3Seconds` INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE `sessions` ADD COLUMN `zone4Seconds` INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE `sessions` ADD COLUMN `zone5Seconds` INTEGER NOT NULL DEFAULT 0")
+            }
+        }
+
         /** Returns the singleton database instance, creating it on first call. */
         fun getInstance(context: Context): PulseCoachDatabase =
             instance ?: synchronized(this) {
@@ -106,7 +122,7 @@ abstract class PulseCoachDatabase : RoomDatabase() {
                     PulseCoachDatabase::class.java,
                     "pulsecoach_db"
                 )
-                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
+                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
                     .build()
                     .also { instance = it }
             }
