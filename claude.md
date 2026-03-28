@@ -68,9 +68,9 @@ Zones are user-defined. ZoneConfig is stored in Room. The defaults below are sug
 Zone colors: use a consistent palette. Suggested: Z1=#80B4FF, Z2=#80E27E, Z3=#FFD54F, Z4=#FF8A65, Z5=#EF5350
 
 Data Storage
-•	Room database: PulseCoachDatabase (version 4, increment on schema change with migration).
+•	Room database: PulseCoachDatabase (version 5, increment on schema change with migration).
 •	Tables: sessions, hr_samples, zone_config.
-•	Migrations: 1→2, 2→3 (sessionType TEXT), 3→4 (zone1Seconds–zone5Seconds INTEGER NOT NULL DEFAULT 0).
+•	Migrations: 1→2, 2→3 (sessionType TEXT), 3→4 (zone1Seconds–zone5Seconds INTEGER NOT NULL DEFAULT 0), 4→5 (maxBpm INTEGER NOT NULL DEFAULT 0).
 •	User profile (age, weight, sex): SharedPreferences ("user_profile"), not Room.
 •	Calibration state: SharedPreferences ("pulse_coach_calibration") — keys: proj_correction_factor (Float), proj_correction_n (Int), proj_ratios (String, comma-separated).
 •	Never delete session data without explicit user confirmation.
