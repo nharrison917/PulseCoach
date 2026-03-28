@@ -40,6 +40,13 @@ android {
         compose = true       // Enable Jetpack Compose
         buildConfig = true   // Generate BuildConfig.DEBUG (disabled by default in AGP 8+)
     }
+
+    testOptions {
+        unitTests {
+            // Required for Robolectric to find Android resources and assets at test time
+            isIncludeAndroidResources = true
+        }
+    }
 }
 
 dependencies {
@@ -100,4 +107,9 @@ dependencies {
     // JUnit 4 for JVM unit tests (src/test/). These run on the host machine,
     // not on a device — so they're fast and suitable for pure-function testing.
     testImplementation("junit:junit:4.13.2")
+
+    // Robolectric: runs Android-dependent code (SharedPreferences, Context, etc.)
+    // on the JVM without an emulator. Required for testing ProjectionCalibrator's
+    // SharedPreferences-backed functions (getCorrectionFactor, updateFactor).
+    testImplementation("org.robolectric:robolectric:4.13")
 }
