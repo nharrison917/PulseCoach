@@ -187,6 +187,7 @@ class LiveSessionViewModel(application: Application) : AndroidViewModel(applicat
     private var cumulativeCalories: Float = 0f
     private var totalBpmAccumulator: Long = 0L  // sum of all bpm readings this session
     private var sampleCount: Int = 0            // number of readings this session
+    private var maxBpmSeen: Int = 0             // peak bpm observed this session
     // Tracks the last whole minute for which a calorie curve point was emitted.
     // -1 means no point has been added yet for the current recording.
     private var calorieCurveLastMinute: Int = -1
@@ -379,6 +380,7 @@ class LiveSessionViewModel(application: Application) : AndroidViewModel(applicat
             cumulativeCalories = 0f
             totalBpmAccumulator = 0L
             sampleCount = 0
+            maxBpmSeen = 0
             calorieCurveLastMinute = -1
             _sessionTotalCalories.value = 0f
             _sessionAvgBpm.value = 0f
@@ -419,6 +421,7 @@ class LiveSessionViewModel(application: Application) : AndroidViewModel(applicat
                 endTimeMs = System.currentTimeMillis(),
                 totalCalories = cumulativeCalories,
                 avgBpm = avgBpm,
+                maxBpm = maxBpmSeen,
                 targetDurationMs = bucketMinutes * 60_000L,
                 // Copy the array so the repository write isn't racing with any reset
                 zoneSplits = zoneSecondsArray.copyOf()
@@ -471,6 +474,7 @@ class LiveSessionViewModel(application: Application) : AndroidViewModel(applicat
                         cumulativeCalories += CalorieCalculator.calPerSample(reading.bpm, profile)
                         totalBpmAccumulator += reading.bpm
                         sampleCount++
+                        if (reading.bpm > maxBpmSeen) maxBpmSeen = reading.bpm
                         _sessionTotalCalories.value = cumulativeCalories
                         // Averages: avg bpm = sum/count; avg cal/min = totalCal * 60 / count
                         // (the *60 converts from cumulative-seconds to per-minute rate)

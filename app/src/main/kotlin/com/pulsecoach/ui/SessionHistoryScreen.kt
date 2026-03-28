@@ -455,6 +455,7 @@ private fun SessionCard(
                     Text(
                         text = buildString {
                             append("avg ${session.avgBpm.toInt()} bpm")
+                            if (session.maxBpm > 0) append("  •  max ${session.maxBpm} bpm")
                             if (avgCalPerMin != null) append("  •  avg ${"%.1f".format(avgCalPerMin)} cal/min")
                         },
                         style = MaterialTheme.typography.bodySmall,
@@ -532,6 +533,7 @@ private val previewSessions = listOf(
         targetDurationMs = null,
         totalCalories    = 423.7f,
         avgBpm           = 152f,
+        maxBpm           = 171,
         notes            = "",
         sessionType      = com.pulsecoach.model.SessionType.PUSH
     ),
@@ -542,6 +544,7 @@ private val previewSessions = listOf(
         targetDurationMs = null,
         totalCalories    = 281.2f,
         avgBpm           = 141f,
+        maxBpm           = 158,
         notes            = "",
         sessionType      = com.pulsecoach.model.SessionType.STEADY
     ),
@@ -562,6 +565,7 @@ private val previewSessions = listOf(
         targetDurationMs = 35 * 60_000L,
         totalCalories    = 312.4f,
         avgBpm           = 147f,
+        maxBpm           = 163,
         notes            = "synthetic",
         sessionType      = null
     )

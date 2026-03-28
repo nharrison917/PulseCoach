@@ -140,7 +140,7 @@ The full analytical rationale and trade-off analysis is in [`ANALYSIS.md`](ANALY
 ```
 app/src/main/kotlin/com/pulsecoach/
   ble/          PolarBleManager — BLE scan, connect, HR stream (callbackFlow bridge)
-  data/         Room entities, DAOs, PulseCoachDatabase (v4)
+  data/         Room entities, DAOs, PulseCoachDatabase (v5)
   model/        Pure data classes (HrReading, Session, HrSample, ZoneConfig, UserProfile, SessionType)
   repository/   SessionRepository, ZoneConfigRepository, UserProfileRepository
   ui/           LiveSessionScreen, SessionHistoryScreen, ProfileSetupScreen,
@@ -159,7 +159,7 @@ app/src/main/kotlin/com/pulsecoach/
 - StateFlow everywhere — no LiveData
 - All Polar SDK / BLE operations run on background coroutines via `callbackFlow`;
   RxJava Flowables from the SDK never escape `PolarBleManager`
-- Room v4 — migrations 1→2, 2→3 (sessionType column), 3→4 (zone split columns)
+- Room v5 — migrations 1→2, 2→3 (sessionType column), 3→4 (zone split columns), 4→5 (maxBpm column)
 - User profile in SharedPreferences, not Room — single record, not tabular data
 - Calibration state in SharedPreferences (`pulse_coach_calibration`) — scalar factor
   and ratio list, no schema version dependency

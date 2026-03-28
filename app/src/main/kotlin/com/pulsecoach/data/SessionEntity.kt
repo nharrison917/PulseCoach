@@ -30,5 +30,7 @@ data class SessionEntity(
     @ColumnInfo(defaultValue = "0") val zone2Seconds: Int = 0,
     @ColumnInfo(defaultValue = "0") val zone3Seconds: Int = 0,
     @ColumnInfo(defaultValue = "0") val zone4Seconds: Int = 0,
-    @ColumnInfo(defaultValue = "0") val zone5Seconds: Int = 0
+    @ColumnInfo(defaultValue = "0") val zone5Seconds: Int = 0,
+    // Added in DB v5. Default 0 for pre-v5 sessions — displayed as "--" in the UI.
+    @ColumnInfo(defaultValue = "0") val maxBpm: Int = 0
 )

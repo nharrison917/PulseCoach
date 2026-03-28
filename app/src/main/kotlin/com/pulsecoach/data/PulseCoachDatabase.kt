@@ -14,6 +14,8 @@ import androidx.sqlite.db.SupportSQLiteDatabase
  *  1 → Initial schema: zone_config table only.
  *  2 → Added sessions and hr_samples tables (Phase 2 session recording).
  *  3 → Added sessionType column to sessions (Phase 4 Session Intent Classification).
+ *  4 → Added zone1Seconds–zone5Seconds columns to sessions (Phase 6 Zone Time Tracking).
+ *  5 → Added maxBpm column to sessions.
  *
  * IMPORTANT: increment [version] and add a Migration object every time you add
  * or change a table column — Room will crash on existing installs if you don't.
@@ -25,7 +27,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         SessionEntity::class,
         HrSampleEntity::class
     ],
-    version = 4,
+    version = 5,
     exportSchema = false
 )
 abstract class PulseCoachDatabase : RoomDatabase() {
@@ -114,6 +116,17 @@ abstract class PulseCoachDatabase : RoomDatabase() {
             }
         }
 
+        /**
+         * Migration from v4 to v5.
+         * Adds maxBpm (INTEGER NOT NULL DEFAULT 0) to the sessions table.
+         * Existing sessions will show 0, which the UI treats as "no data" and displays as "--".
+         */
+        private val MIGRATION_4_5 = object : Migration(4, 5) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE `sessions` ADD COLUMN `maxBpm` INTEGER NOT NULL DEFAULT 0")
+            }
+        }
+
         /** Returns the singleton database instance, creating it on first call. */
         fun getInstance(context: Context): PulseCoachDatabase =
             instance ?: synchronized(this) {
@@ -122,7 +135,7 @@ abstract class PulseCoachDatabase : RoomDatabase() {
                     PulseCoachDatabase::class.java,
                     "pulsecoach_db"
                 )
-                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
+                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
                     .build()
                     .also { instance = it }
             }

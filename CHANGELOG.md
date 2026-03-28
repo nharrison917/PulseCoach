@@ -4,6 +4,15 @@ All notable changes to PulseCoach are documented here, organized by development 
 
 ---
 
+## Session Max BPM
+
+- `maxBpm: Int` added to `Session` domain model and `SessionEntity` (Room v4 → v5 migration: `ALTER TABLE sessions ADD COLUMN maxBpm INTEGER NOT NULL DEFAULT 0`)
+- `LiveSessionViewModel` tracks `maxBpmSeen` during recording; resets on start, updated per HR sample, passed to `finishSession()`
+- `SessionRepository.finishSession()` accepts and persists `maxBpm`
+- `SessionHistoryScreen` card stats line now shows `max N bpm` between avg BPM and avg cal/min; silently omitted for pre-v5 sessions where `maxBpm == 0`
+
+---
+
 ## Bug Fix — Zone Classification Using Stale Defaults
 
 - `LiveSessionViewModel.zoneConfig` StateFlow was started with `SharingStarted.WhileSubscribed`,

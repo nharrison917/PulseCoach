@@ -55,6 +55,7 @@ class SessionRepository(
         endTimeMs: Long,
         totalCalories: Float,
         avgBpm: Float,
+        maxBpm: Int = 0,
         targetDurationMs: Long? = null,
         zoneSplits: IntArray = IntArray(6) // index 0 unused; zones 1–5 map to indices 1–5
     ) {
@@ -65,6 +66,7 @@ class SessionRepository(
                 endTimeMs = endTimeMs,
                 totalCalories = totalCalories,
                 avgBpm = avgBpm,
+                maxBpm = maxBpm,
                 targetDurationMs = targetDurationMs ?: existing.targetDurationMs,
                 zone1Seconds = zoneSplits.getOrElse(1) { 0 },
                 zone2Seconds = zoneSplits.getOrElse(2) { 0 },
@@ -187,7 +189,8 @@ class SessionRepository(
         zone2Seconds = zone2Seconds,
         zone3Seconds = zone3Seconds,
         zone4Seconds = zone4Seconds,
-        zone5Seconds = zone5Seconds
+        zone5Seconds = zone5Seconds,
+        maxBpm = maxBpm
     )
 
     private fun HrSampleEntity.toDomain() = HrSample(

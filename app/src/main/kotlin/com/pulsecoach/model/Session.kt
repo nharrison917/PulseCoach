@@ -18,5 +18,6 @@ data class Session(
     val zone2Seconds: Int = 0,
     val zone3Seconds: Int = 0,
     val zone4Seconds: Int = 0,
-    val zone5Seconds: Int = 0
+    val zone5Seconds: Int = 0,
+    val maxBpm: Int = 0
 )
