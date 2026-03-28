@@ -31,31 +31,30 @@ import com.patrykandpatrick.vico.core.cartesian.data.lineSeries
 import com.patrykandpatrick.vico.core.cartesian.layer.LineCartesianLayer
 
 /**
- * Cumulative calorie chart with an optional projected extension.
+ * Cumulative calorie chart with an optional projected extension and confidence band.
  *
- * Two visual series:
- *   - Actual (solid primary color): calories accumulated so far this session.
- *   - Projected (lighter color): polynomial extrapolation to the target duration.
- *     Only rendered once [projectedPoints] is non-null (after 10 min of data).
+ * Four visual series (all always present in the model to keep the Vico layer count stable):
+ *   0 — Actual (solid primary color): calories accumulated this session.
+ *   1 — Projected (45% opacity): polynomial/blend extrapolation to the target duration.
+ *        Only meaningful once [projectedPoints] is non-null (after 10 min of data).
+ *   2 — Upper confidence band (20% opacity): projected × (1 + σ).
+ *   3 — Lower confidence band (20% opacity): projected × (1 − σ).
+ *        Series 2 and 3 are dummies when [projectionBand] is null (< 5 past sessions).
  *
- * Both series always exist in the model so the Vico layer count stays stable.
- * When there is no projection, the second series is a single-point dummy at the
- * last actual position — nothing new is drawn.
+ * When there is no real data for a series, a flat 2-point segment at the last actual
+ * position is used as a dummy — Vico needs ≥ 2 points to render without warnings.
  *
- * Vico note: Vico 2.0.0-beta.3 does not expose a native dashed-stroke option on
- * LineCartesianLayer.Line. The projection is instead rendered in a lighter
- * opacity of the primary color, which is visually clear and requires no hacks.
- *
- * @param actualPoints     (elapsedMinutes, cumulativeCalories) — one per minute.
- * @param projectedPoints  Projected curve from [PolynomialProjector.project], or null.
- * @param isBlended        True when the projection is a poly+historical blend (>= 10 sessions).
- *                         Controls the caption label shown below the chart.
+ * @param actualPoints    (elapsedMinutes, cumulativeCalories) — one per minute.
+ * @param projectedPoints Projected curve from [PolynomialProjector.project], or null.
+ * @param isBlended       True when the projection is a poly+historical blend.
+ * @param projectionBand  Fractional σ of past ratios (e.g. 0.12 = ±12%). Null until ≥5 sessions.
  */
 @Composable
 fun LiveCalorieChart(
     actualPoints: List<Pair<Float, Float>>,
     projectedPoints: List<Pair<Float, Float>>?,
     isBlended: Boolean = false,
+    projectionBand: Float? = null,
     modifier: Modifier = Modifier
 ) {
     val modelProducer = remember { CartesianChartModelProducer() }
@@ -67,24 +66,21 @@ fun LiveCalorieChart(
         CartesianValueFormatter { _, value, _ -> "${value.toInt()}m" }
     }
 
-    // Actual line: solid primary color.
-    // Projected line: same hue at 45% opacity — clearly "estimated, not real".
-    // fill() is a Vico helper that wraps a Compose Color into a core Fill object.
-    val primaryColor    = MaterialTheme.colorScheme.primary
-    val projectedColor  = primaryColor.copy(alpha = 0.45f)
-    // Same fix as LiveHrChart — explicit ARGB color prevents invisible labels.
-    val onSurface = MaterialTheme.colorScheme.onSurface.toArgb()
-    val axisLabel = remember(onSurface) { TextComponent(color = onSurface) }
+    val primaryColor   = MaterialTheme.colorScheme.primary
+    val projectedColor = primaryColor.copy(alpha = 0.45f)
+    // Band lines: same hue at very low opacity so they frame without distracting
+    val bandColor      = primaryColor.copy(alpha = 0.20f)
 
-    val actualLine    = LineCartesianLayer.rememberLine(
-        fill = LineCartesianLayer.LineFill.single(fill(primaryColor))
-    )
-    val projectedLine = LineCartesianLayer.rememberLine(
-        fill = LineCartesianLayer.LineFill.single(fill(projectedColor))
-    )
+    val onSurface  = MaterialTheme.colorScheme.onSurface.toArgb()
+    val axisLabel  = remember(onSurface) { TextComponent(color = onSurface) }
 
-    // Update the chart model whenever the input data changes
-    LaunchedEffect(actualPoints, projectedPoints) {
+    val actualLine    = LineCartesianLayer.rememberLine(fill = LineCartesianLayer.LineFill.single(fill(primaryColor)))
+    val projectedLine = LineCartesianLayer.rememberLine(fill = LineCartesianLayer.LineFill.single(fill(projectedColor)))
+    val upperBandLine = LineCartesianLayer.rememberLine(fill = LineCartesianLayer.LineFill.single(fill(bandColor)))
+    val lowerBandLine = LineCartesianLayer.rememberLine(fill = LineCartesianLayer.LineFill.single(fill(bandColor)))
+
+    // Rebuild the model whenever any input data changes
+    LaunchedEffect(actualPoints, projectedPoints, projectionBand) {
         if (actualPoints.size < 2) return@LaunchedEffect
 
         modelProducer.runTransaction {
@@ -94,21 +90,29 @@ fun LiveCalorieChart(
                     x = actualPoints.map { it.first },
                     y = actualPoints.map { it.second }
                 )
-                // Series 1 — projected, or a 2-point dummy at the last actual position.
-                // A 2-point (not 1-point) dummy is used because Vico needs >= 2 points
-                // to render a line segment; a 1-point series would log a warning.
+
+                // Dummy used when a series has no real data: a flat 2-point segment
+                // at the last actual position — invisible but satisfies Vico's ≥2 rule.
+                val dummyX = listOf(actualPoints.last().first, actualPoints.last().first + 1f)
+                val dummyY = listOf(actualPoints.last().second, actualPoints.last().second)
+
+                // Series 1 — projected (or dummy)
                 val proj = projectedPoints?.takeIf { it.size >= 2 }
                 if (proj != null) {
-                    series(
-                        x = proj.map { it.first },
-                        y = proj.map { it.second }
-                    )
+                    series(x = proj.map { it.first }, y = proj.map { it.second })
                 } else {
-                    val last = actualPoints.last()
-                    series(
-                        x = listOf(last.first, last.first + 1f),
-                        y = listOf(last.second, last.second)
-                    )
+                    series(x = dummyX, y = dummyY)
+                }
+
+                // Series 2 & 3 — upper/lower confidence band (or dummies)
+                if (proj != null && projectionBand != null) {
+                    val upperPts = proj.map { (t, cal) -> t to cal + projectionBand * cal }
+                    val lowerPts = proj.map { (t, cal) -> t to (cal - projectionBand * cal).coerceAtLeast(0f) }
+                    series(x = upperPts.map { it.first }, y = upperPts.map { it.second })
+                    series(x = lowerPts.map { it.first }, y = lowerPts.map { it.second })
+                } else {
+                    series(x = dummyX, y = dummyY)
+                    series(x = dummyX, y = dummyY)
                 }
             }
         }
@@ -120,7 +124,9 @@ fun LiveCalorieChart(
                 rememberLineCartesianLayer(
                     lineProvider = LineCartesianLayer.LineProvider.series(
                         actualLine,
-                        projectedLine
+                        projectedLine,
+                        upperBandLine,
+                        lowerBandLine
                     ),
                     rangeProvider = CartesianLayerRangeProvider.fixed(minY = 0.0)
                 ),
@@ -134,20 +140,26 @@ fun LiveCalorieChart(
                 )
             ),
             modelProducer = modelProducer,
-            // Chart does not scroll — the x range grows as time passes
             scrollState = rememberVicoScrollState(scrollEnabled = false),
             modifier = Modifier
                 .fillMaxWidth()
                 .weight(1f)
         )
 
-        // Caption below the chart: shows projection mode and start point when active
-        val caption = if (projectedPoints != null) {
-            val startMinute = actualPoints.last().first.toInt()
-            val mode = if (isBlended) "Historical blend" else "Polynomial projection"
-            "$mode from min $startMinute"
-        } else {
-            "Projection starts after 10 min"
+        // Caption: projection mode, start minute, and band width when active
+        val caption = when {
+            projectedPoints == null -> "Projection starts after 10 min"
+            projectionBand != null -> {
+                val startMinute = actualPoints.last().first.toInt()
+                val mode = if (isBlended) "Historical blend" else "Polynomial projection"
+                val pct = (projectionBand * 100).toInt()
+                "$mode from min $startMinute  \u2022  \u00b1${pct}% historical range"
+            }
+            else -> {
+                val startMinute = actualPoints.last().first.toInt()
+                val mode = if (isBlended) "Historical blend" else "Polynomial projection"
+                "$mode from min $startMinute"
+            }
         }
         Text(
             text = caption,
@@ -187,6 +199,26 @@ private fun PreviewWithProjection() {
         LiveCalorieChart(
             actualPoints = actual,
             projectedPoints = projected,
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(220.dp)
+        )
+    }
+}
+
+@Preview(showBackground = true)
+@Composable
+private fun PreviewWithBand() {
+    val actual = (0..15).map { i -> i.toFloat() to (i * 8f + 0.05f * i * i) }
+    val lastActual = actual.last()
+    val projected = (0..30).map { i ->
+        (lastActual.first + i) to (lastActual.second + i * 8.2f)
+    }
+    MaterialTheme {
+        LiveCalorieChart(
+            actualPoints = actual,
+            projectedPoints = projected,
+            projectionBand = 0.12f,
             modifier = Modifier
                 .fillMaxWidth()
                 .height(220.dp)

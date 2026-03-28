@@ -117,6 +117,7 @@ fun LiveSessionScreen(
     val targetDuration        by viewModel.targetDurationMinutes.collectAsStateWithLifecycle()
     val actualCalorieCurve       by viewModel.actualCalorieCurve.collectAsStateWithLifecycle()
     val projectedCalorie         by viewModel.projectedCalorieCurve.collectAsStateWithLifecycle()
+    val projectionBand           by viewModel.projectionBand.collectAsStateWithLifecycle()
     val qualifyingSessionCount   by viewModel.qualifyingSessionCount.collectAsStateWithLifecycle()
     val sessionType              by viewModel.sessionType.collectAsStateWithLifecycle()
     val isReconnecting           by viewModel.isReconnecting.collectAsStateWithLifecycle()
@@ -178,6 +179,7 @@ fun LiveSessionScreen(
                             targetDurationMinutes = targetDuration,
                             actualCalorieCurve = actualCalorieCurve,
                             projectedCalorieCurve = projectedCalorie,
+                            projectionBand = projectionBand,
                             isBlended = qualifyingSessionCount >= 10,
                             sessionType = sessionType,
                             zoneSeconds = zoneSeconds,
@@ -368,6 +370,7 @@ private fun ConnectedContent(
     targetDurationMinutes: Int,
     actualCalorieCurve: List<Pair<Float, Float>>,
     projectedCalorieCurve: List<Pair<Float, Float>>?,
+    projectionBand: Float?,
     isBlended: Boolean,
     sessionType: SessionType?,
     zoneSeconds: Map<Int, Int>,
@@ -433,6 +436,7 @@ private fun ConnectedContent(
             LiveCalorieChart(
                 actualPoints = actualCalorieCurve,
                 projectedPoints = projectedCalorieCurve,
+                projectionBand = projectionBand,
                 isBlended = isBlended,
                 modifier = Modifier
                     .fillMaxWidth()
@@ -843,6 +847,7 @@ private fun PreviewConnectedIdle() {
             targetDurationMinutes = 45,
             actualCalorieCurve = emptyList(),
             projectedCalorieCurve = null,
+            projectionBand = null,
             isBlended = false,
             sessionType = SessionType.STEADY,
             zoneSeconds = emptyMap(),
@@ -876,6 +881,7 @@ private fun PreviewConnectedRecording() {
             targetDurationMinutes = 45,
             actualCalorieCurve = (0..15).map { i -> i.toFloat() to (i * 9f + 0.05f * i * i) },
             projectedCalorieCurve = null,
+            projectionBand = null,
             isBlended = false,
             sessionType = null,
             zoneSeconds = mapOf(1 to 120, 2 to 480, 3 to 600, 4 to 180, 5 to 6),

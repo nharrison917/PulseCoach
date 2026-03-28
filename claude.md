@@ -150,6 +150,9 @@ Phase 1 — COMPLETE.
 Phase 2 — COMPLETE (all core + all polish items including multi-select delete).
 Phase 3 — COMPLETE.
 Phase 4 — COMPLETE.
+Phase 5 — COMPLETE.
+Phase 6 — COMPLETE.
+Phase 7 — COMPLETE.
 
 Phase 3 — Projection Engine (all stages COMPLETE):
 Stage 1: PolynomialProjector + LiveCalorieChart + duration picker (20/30/45/60 min) + 12 unit tests
@@ -167,9 +170,14 @@ Evaluation update: EvaluationScreen Panel 4 added — per-type poly vs typed-ble
 Phase 5 — BLE Reconnection (COMPLETE):
 Auto-reconnect on signal drop: LiveSessionViewModel tracks lastConnectedDeviceId; on Disconnected fires up to 5 retries × 3s delay via reconnectJob; isReconnecting: StateFlow<Boolean> exposed to UI; voluntary disconnect() clears lastConnectedDeviceId first to suppress reconnect; ReconnectingContent composable shows spinner + "Recording paused" note if session active; onCleared() cancels reconnectJob
 
-Phase 6 — Live Zone Time Tracking (NEXT):
-During a session, accumulate elapsed seconds per zone (Z1–Z5) and show a horizontal bar or text summary on LiveSessionScreen.
-Stretch: persist per-session zone splits to Room (new column or table) for history display.
+Phase 6 — Live Zone Time Tracking (COMPLETE):
+Live: zoneSecondsArray accumulator in LiveSessionViewModel → zoneSeconds StateFlow → ZoneTimeSummary composable (proportional color bar + M:SS labels) on LiveSessionScreen while recording.
+Persisted: DB v3→v4 migration adds zone1Seconds–zone5Seconds (INTEGER NOT NULL DEFAULT 0) to sessions table. finishSession() writes splits; SessionHistoryScreen shows compact 6dp zone bar on cards (hidden for pre-v4 sessions).
+
+Phase 7 — Projection Calibration (COMPLETE):
+Stage 1: ProjectionCalibrator (util/) — rolling mean of actual/projected ratios, SharedPreferences file "pulse_coach_calibration" (keys: proj_correction_factor Float, proj_correction_n Int), outlier guard [0.5–2.0], no-op until ≥3 sessions. stopRecording() snapshots cumulativeCalories + _projectedCalorieCurve.value before the coroutine; calls updateFactor() after finishSession(). Per-minute projection block calls getCorrectionFactor() + applyTo() before assigning _projectedCalorieCurve.
+Stage 2: ProjectionCalibrator extended with ratio list (proj_ratios String, comma-separated, capped at 50) + computeSigma() (sample std dev, Bessel's correction) + getProjectionSigma() (null until ≥5 sessions). _projectionBand: StateFlow<Float?> in LiveSessionViewModel. LiveCalorieChart expanded to 4-series Vico layout (actual / projected / upper band / lower band); band lines at 0.20f opacity; always 4 series in model — dummies when inactive. projectionBand threaded through ConnectedContent. Caption shows ±N% historical range when band is active.
+Testing: 21 unit tests in ProjectionCalibratorTest. Known gap: getCorrectionFactor() SharedPreferences guard (≥3 sessions) is not unit tested — requires Robolectric, which is not in this project. The logic is a single if (n >= MIN_SESSIONS) check; low risk to leave untested until Robolectric is added for other reasons.
 
 Known issues carried forward:
-•	None — BLE reconnection resolved the last known issue.
+•	None.

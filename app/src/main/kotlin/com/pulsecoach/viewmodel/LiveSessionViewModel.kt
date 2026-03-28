@@ -18,6 +18,7 @@ import com.pulsecoach.repository.ZoneConfigRepository
 import com.pulsecoach.util.CalorieCalculator
 import com.pulsecoach.util.HistoricalAverager
 import com.pulsecoach.util.PolynomialProjector
+import com.pulsecoach.util.ProjectionCalibrator
 import com.pulsecoach.util.ZoneCalculator
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
@@ -156,6 +157,10 @@ class LiveSessionViewModel(application: Application) : AndroidViewModel(applicat
      */
     private val _projectedCalorieCurve = MutableStateFlow<List<Pair<Float, Float>>?>(null)
     val projectedCalorieCurve: StateFlow<List<Pair<Float, Float>>?> = _projectedCalorieCurve.asStateFlow()
+
+    /** Fractional σ of past actual/projected ratios; null until ≥5 sessions have contributed. */
+    private val _projectionBand = MutableStateFlow<Float?>(null)
+    val projectionBand: StateFlow<Float?> = _projectionBand.asStateFlow()
 
     /**
      * Number of sessions that qualify for historical averaging (completed, avgBpm > 100,
@@ -399,6 +404,12 @@ class LiveSessionViewModel(application: Application) : AndroidViewModel(applicat
         val actualDurationMs = sampleCount * 1000L
         val bucketMinutes = HistoricalAverager.durationBucketFor(actualDurationMs)
 
+        // Snapshot before the coroutine so the calibrator sees the same totals
+        // that will be written to the database.
+        val snapshotCalories = cumulativeCalories
+        val snapshotDurationMinutes = sampleCount / 60f
+        val snapshotProjectedCurve = _projectedCalorieCurve.value
+
         viewModelScope.launch {
             sessionRepository.finishSession(
                 sessionId = sessionId,
@@ -409,6 +420,15 @@ class LiveSessionViewModel(application: Application) : AndroidViewModel(applicat
                 // Copy the array so the repository write isn't racing with any reset
                 zoneSplits = zoneSecondsArray.copyOf()
             )
+            // Update personal bias factor using this session's actuals vs projection.
+            // Called after finishSession() so both are written to DB before we update.
+            ProjectionCalibrator.updateFactor(
+                context = getApplication(),
+                actualCalories = snapshotCalories,
+                projectedCurve = snapshotProjectedCurve,
+                actualDurationMinutes = snapshotDurationMinutes
+            )
+
             activeSessionId = null
             _isRecording.value = false
             _currentCalPerMinute.value = 0f
@@ -418,6 +438,7 @@ class LiveSessionViewModel(application: Application) : AndroidViewModel(applicat
             _sessionElapsedSeconds.value = 0
             _actualCalorieCurve.value = emptyList()
             _projectedCalorieCurve.value = null
+            _projectionBand.value = null
         }
     }
 
@@ -479,7 +500,7 @@ class LiveSessionViewModel(application: Application) : AndroidViewModel(applicat
                                     targetMinutes = _targetDurationMinutes.value.toFloat()
                                 )
                                 val historical = historicalCurve
-                                _projectedCalorieCurve.value = if (
+                                val rawProjection = if (
                                     polyProjection != null &&
                                     historical != null &&
                                     _qualifyingSessionCount.value >= HistoricalAverager.BLEND_MIN_SESSIONS
@@ -488,6 +509,15 @@ class LiveSessionViewModel(application: Application) : AndroidViewModel(applicat
                                 } else {
                                     polyProjection
                                 }
+                                // Apply personal bias correction (no-op factor = 1.0f until
+                                // MIN_SESSIONS completed sessions have contributed).
+                                val calibrationFactor = ProjectionCalibrator.getCorrectionFactor(getApplication())
+                                _projectedCalorieCurve.value = rawProjection?.let {
+                                    ProjectionCalibrator.applyTo(it, calibrationFactor)
+                                }
+                                // σ of past ratios — null until ≥5 sessions; drives the
+                                // confidence band on the chart when non-null.
+                                _projectionBand.value = ProjectionCalibrator.getProjectionSigma(getApplication())
                             }
                         }
 
