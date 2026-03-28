@@ -94,6 +94,7 @@ Do not implement Phase 3b until Phase 3a is working and tested.
 Testing Strategy
 •	CalorieCalculator and ZoneCalculator are covered by JVM unit tests in src/test/. Run with ./gradlew test (no device needed).
 •	JUnit 4 dependency: testImplementation("junit:junit:4.13.2") — already in build.gradle.kts.
+•	Robolectric: testImplementation("org.robolectric:robolectric:4.13") — in build.gradle.kts. Use @RunWith(RobolectricTestRunner::class) + @Config(sdk = [34]) for any test that needs Android context (SharedPreferences, etc.). testOptions.unitTests.isIncludeAndroidResources = true is set.
 •	Use a mock BLE data source (emitting fake HR values on a timer) for UI testing without hardware.
 •	UI instrumentation tests are unblocked if needed now that Phase 2 is complete.
 
@@ -177,7 +178,7 @@ Persisted: DB v3→v4 migration adds zone1Seconds–zone5Seconds (INTEGER NOT NU
 Phase 7 — Projection Calibration (COMPLETE):
 Stage 1: ProjectionCalibrator (util/) — rolling mean of actual/projected ratios, SharedPreferences file "pulse_coach_calibration" (keys: proj_correction_factor Float, proj_correction_n Int), outlier guard [0.5–2.0], no-op until ≥3 sessions. stopRecording() snapshots cumulativeCalories + _projectedCalorieCurve.value before the coroutine; calls updateFactor() after finishSession(). Per-minute projection block calls getCorrectionFactor() + applyTo() before assigning _projectedCalorieCurve.
 Stage 2: ProjectionCalibrator extended with ratio list (proj_ratios String, comma-separated, capped at 50) + computeSigma() (sample std dev, Bessel's correction) + getProjectionSigma() (null until ≥5 sessions). _projectionBand: StateFlow<Float?> in LiveSessionViewModel. LiveCalorieChart expanded to 4-series Vico layout (actual / projected / upper band / lower band); band lines at 0.20f opacity; always 4 series in model — dummies when inactive. projectionBand threaded through ConnectedContent. Caption shows ±N% historical range when band is active.
-Testing: 21 unit tests in ProjectionCalibratorTest. Known gap: getCorrectionFactor() SharedPreferences guard (≥3 sessions) is not unit tested — requires Robolectric, which is not in this project. The logic is a single if (n >= MIN_SESSIONS) check; low risk to leave untested until Robolectric is added for other reasons.
+Testing: 32 unit tests total — 21 pure JVM in ProjectionCalibratorTest, 11 Robolectric in ProjectionCalibratorPrefsTest. Full coverage including getCorrectionFactor() SharedPreferences guard, updateFactor() round-trip, outlier rejection, and getProjectionSigma() gate. Robolectric 4.13 is now in the project (testImplementation, @Config sdk=34).
 
 Known issues carried forward:
 •	None.
