@@ -4,6 +4,16 @@ All notable changes to PulseCoach are documented here, organized by development 
 
 ---
 
+## HR Chart — 5-Minute Fixed Window
+
+- `MAX_HR_HISTORY` increased from 60 → 300 samples (5 minutes at 1 Hz)
+- Chart x-axis pinned to a fixed 0–300 second range; data fills left-to-right with empty space on the right for future readings, rolling once the buffer is full
+- Tick marks every 30 seconds; minute labels only at full-minute positions (1m, 2m, 3m, 4m)
+- Scroll disabled — window is fixed, not scrollable
+- `CLAUDE.md` updated with `HorizontalAxis.ItemPlacer.aligned()` and `series(x, y)` API notes
+
+---
+
 ## Session Max BPM
 
 - `maxBpm: Int` added to `Session` domain model and `SessionEntity` (Room v4 → v5 migration: `ALTER TABLE sessions ADD COLUMN maxBpm INTEGER NOT NULL DEFAULT 0`)

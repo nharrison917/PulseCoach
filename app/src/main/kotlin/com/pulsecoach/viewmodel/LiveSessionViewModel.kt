@@ -193,7 +193,7 @@ class LiveSessionViewModel(application: Application) : AndroidViewModel(applicat
     private var calorieCurveLastMinute: Int = -1
 
     companion object {
-        private const val MAX_HR_HISTORY = 60
+        private const val MAX_HR_HISTORY = 300
         /** How many times to retry after a signal drop before giving up. */
         private const val MAX_RECONNECT_ATTEMPTS = 5
         /** Gap between each reconnect attempt in milliseconds. */

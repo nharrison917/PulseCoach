@@ -25,15 +25,24 @@ import com.patrykandpatrick.vico.core.cartesian.data.CartesianValueFormatter
 import com.patrykandpatrick.vico.core.cartesian.data.lineSeries
 import com.pulsecoach.model.HrReading
 
+private const val WINDOW_SECONDS = 300 // 5-minute fixed x-axis window
+
 /**
- * A live-scrolling HR chart showing the last 60 seconds of readings.
+ * A live HR chart showing the most recent 5 minutes of readings in a fixed window.
+ *
+ * The x-axis always spans 0–300 seconds. Data fills from the left; empty space on the
+ * right represents future time within the current 5-minute window. Once 5 minutes of
+ * data accumulates, the oldest readings drop off the left (rolling window).
+ *
+ * X-axis tick marks appear every 30 seconds; minute labels (1m, 2m, …) appear only at
+ * full-minute positions so the axis stays readable.
  *
  * Zone band decorations (HorizontalBox) were removed — in Vico 2.0.0-beta.3
  * decoration draws are not clipped to the chart canvas, causing bands with bpm
  * boundaries outside the visible y-range to render outside the chart area.
  * Zone context is provided by the ZoneStrip below this chart instead.
  *
- * @param hrHistory Ordered list of readings from oldest to newest.
+ * @param hrHistory Ordered list of readings from oldest to newest (max 300 entries).
  */
 @Composable
 fun LiveHrChart(
@@ -47,15 +56,27 @@ fun LiveHrChart(
         CartesianValueFormatter { _, value, _ -> "${value.toInt()}" }
     }
 
-    // X-axis formatter: each index = 1 second, so label as "0s", "10s", etc.
-    val secondsFormatter = remember {
-        CartesianValueFormatter { _, value, _ -> "${value.toInt()}s" }
+    // X-axis formatter: tick marks appear every 30s (controlled by itemPlacer below).
+    // Only show a label at full-minute positions (multiples of 60); return "" at 30s ticks.
+    // value.toInt() is the second index within the 5-minute window.
+    val minuteFormatter = remember {
+        CartesianValueFormatter { _, value, _ ->
+            val second = value.toInt()
+            if (second > 0 && second % 60 == 0) "${second / 60}m" else ""
+        }
     }
 
     LaunchedEffect(hrHistory) {
         if (hrHistory.size >= 2) {
             modelProducer.runTransaction {
-                lineSeries { series(hrHistory.map { it.bpm }) }
+                // Pass explicit x values (0, 1, 2, …) so each reading maps to its
+                // second index within the 300-second window. Combined with the fixed
+                // x range below, this anchors the line to the left edge and leaves
+                // empty space on the right for future data.
+                val xValues = hrHistory.indices.map { it.toDouble() }
+                lineSeries {
+                    series(x = xValues, y = hrHistory.map { it.bpm.toDouble() })
+                }
             }
         }
     }
@@ -69,10 +90,13 @@ fun LiveHrChart(
     CartesianChartHost(
         chart = rememberCartesianChart(
             rememberLineCartesianLayer(
-                // minY = 50 gives a stable floor so the line doesn't bounce around
-                // at the very bottom of the chart when HR is in the 60s–70s.
-                // maxY is left as null (auto) so it scales up naturally at high HR.
-                rangeProvider = CartesianLayerRangeProvider.fixed(minY = 50.0)
+                // minX/maxX pin the x-axis to the full 5-minute window regardless of
+                // how much data has arrived. minY = 50 gives a stable floor.
+                rangeProvider = CartesianLayerRangeProvider.fixed(
+                    minX = 0.0,
+                    maxX = WINDOW_SECONDS.toDouble(),
+                    minY = 50.0
+                )
             ),
             startAxis = VerticalAxis.rememberStart(
                 label = axisLabel,
@@ -80,11 +104,15 @@ fun LiveHrChart(
             ),
             bottomAxis = HorizontalAxis.rememberBottom(
                 label = axisLabel,
-                valueFormatter = secondsFormatter
+                valueFormatter = minuteFormatter,
+                // spacing = 30 places a tick mark (and a label slot) every 30 seconds.
+                // The formatter above returns "" at non-minute positions, so only minute
+                // labels appear as text while all 30s ticks still get a tick line.
+                itemPlacer = remember { HorizontalAxis.ItemPlacer.aligned(spacing = 30) },
             ),
         ),
         modelProducer = modelProducer,
-        scrollState = rememberVicoScrollState(scrollEnabled = true),
+        scrollState = rememberVicoScrollState(scrollEnabled = false),
         modifier = modifier,
     )
 }
@@ -92,8 +120,9 @@ fun LiveHrChart(
 @Preview(showBackground = true)
 @Composable
 private fun PreviewChart() {
-    val fakeHistory = (0 until 40).map { i ->
-        HrReading(bpm = 140 + (i % 8) - 3, timestampMs = i * 1000L, contactOk = true)
+    // 150 readings = 2.5 minutes of data, showing empty space on the right
+    val fakeHistory = (0 until 150).map { i ->
+        HrReading(bpm = 140 + (i % 12) - 5, timestampMs = i * 1000L, contactOk = true)
     }
     MaterialTheme {
         LiveHrChart(
