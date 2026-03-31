@@ -28,9 +28,11 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 
 /**
  * ViewModel for the live training session screen.
@@ -165,6 +167,14 @@ class LiveSessionViewModel(application: Application) : AndroidViewModel(applicat
     private val _projectionBand = MutableStateFlow<Float?>(null)
     val projectionBand: StateFlow<Float?> = _projectionBand.asStateFlow()
 
+    /** Cumulative calories at the exact second elapsed time first reached [targetDurationMinutes]. Null until that crossing. */
+    private val _caloriesAtTarget = MutableStateFlow<Float?>(null)
+    val caloriesAtTarget: StateFlow<Float?> = _caloriesAtTarget.asStateFlow()
+
+    /** Projected final calories frozen at the target crossing moment. Null until that crossing. */
+    private val _pinnedProjectedCalories = MutableStateFlow<Float?>(null)
+    val pinnedProjectedCalories: StateFlow<Float?> = _pinnedProjectedCalories.asStateFlow()
+
     /**
      * Number of sessions that qualify for historical averaging (completed, avgBpm > 100,
      * duration > 10 min). Exposed to the UI so the chart label can reflect the active mode.
@@ -198,6 +208,10 @@ class LiveSessionViewModel(application: Application) : AndroidViewModel(applicat
         private const val MAX_RECONNECT_ATTEMPTS = 5
         /** Gap between each reconnect attempt in milliseconds. */
         private const val RECONNECT_DELAY_MS = 3_000L
+        /** How long to wait for the SDK to confirm a connection before retrying.
+         *  The Polar SDK does not always emit a callback on a failed attempt, so
+         *  we time out and drive the next attempt ourselves. */
+        private const val RECONNECT_TIMEOUT_MS = 15_000L
     }
 
     // --- BLE reconnection state ---
@@ -205,7 +219,6 @@ class LiveSessionViewModel(application: Application) : AndroidViewModel(applicat
     // when the user explicitly taps Disconnect. A BLE signal drop leaves it set so
     // the reconnect loop knows which device to retry.
     private var lastConnectedDeviceId: String? = null
-    private var reconnectAttempt = 0
     private var reconnectJob: Job? = null
 
     /** True while an automatic reconnect is in progress after a signal drop. */
@@ -263,9 +276,8 @@ class LiveSessionViewModel(application: Application) : AndroidViewModel(applicat
             connectionState.collect { state ->
                 when (state) {
                     is BleConnectionState.Connected -> {
-                        // Successful (re)connection — reset reconnect counters and start data.
+                        // Successful (re)connection — cancel any pending reconnect loop and start data.
                         lastConnectedDeviceId = state.deviceId
-                        reconnectAttempt = 0
                         reconnectJob?.cancel()
                         reconnectJob = null
                         _isReconnecting.value = false
@@ -282,20 +294,8 @@ class LiveSessionViewModel(application: Application) : AndroidViewModel(applicat
                         // should not discard the session. The user taps Stop explicitly.
 
                         val deviceId = lastConnectedDeviceId
-                        if (deviceId != null && reconnectAttempt < MAX_RECONNECT_ATTEMPTS) {
-                            // Schedule the next reconnect attempt after a short delay.
-                            reconnectAttempt++
-                            _isReconnecting.value = true
-                            reconnectJob?.cancel()
-                            reconnectJob = viewModelScope.launch {
-                                delay(RECONNECT_DELAY_MS)
-                                bleManager.connectToDevice(deviceId)
-                            }
-                        } else if (deviceId != null) {
-                            // All attempts exhausted — give up and show normal Disconnect UI.
-                            lastConnectedDeviceId = null
-                            reconnectAttempt = 0
-                            _isReconnecting.value = false
+                        if (deviceId != null) {
+                            startReconnectLoop(deviceId)
                         }
                         // If deviceId is null, user disconnected voluntarily — no reconnect.
                     }
@@ -340,6 +340,34 @@ class LiveSessionViewModel(application: Application) : AndroidViewModel(applicat
         bleManager.connectToDevice(deviceId)
     }
 
+    /**
+     * Retries BLE connection up to MAX_RECONNECT_ATTEMPTS times with a per-attempt timeout.
+     * Self-drives the loop because the Polar SDK does not always emit a callback when
+     * connectToDevice() fails — without a timeout, the loop would stall after attempt 1.
+     */
+    private fun startReconnectLoop(deviceId: String) {
+        reconnectJob?.cancel()
+        reconnectJob = viewModelScope.launch {
+            _isReconnecting.value = true
+            repeat(MAX_RECONNECT_ATTEMPTS) {
+                delay(RECONNECT_DELAY_MS)
+                bleManager.connectToDevice(deviceId)
+                // Wait for Connected state. withTimeoutOrNull returns null on timeout,
+                // letting the loop advance to the next attempt automatically.
+                // If the job is cancelled (voluntary disconnect), CancellationException
+                // propagates through withTimeoutOrNull and stops the loop cleanly.
+                val connected = withTimeoutOrNull(RECONNECT_TIMEOUT_MS) {
+                    connectionState.first { it is BleConnectionState.Connected }
+                }
+                if (connected != null) return@launch // success — main collector handles reset
+                // Timeout with no connection — continue to next attempt
+            }
+            // All attempts exhausted — give up
+            lastConnectedDeviceId = null
+            _isReconnecting.value = false
+        }
+    }
+
     /** Disconnects from the current device and suppresses any pending reconnect attempt. */
     fun disconnect(deviceId: String) {
         // Clear lastConnectedDeviceId BEFORE disconnecting so that the Disconnected
@@ -347,7 +375,6 @@ class LiveSessionViewModel(application: Application) : AndroidViewModel(applicat
         reconnectJob?.cancel()
         reconnectJob = null
         lastConnectedDeviceId = null
-        reconnectAttempt = 0
         _isReconnecting.value = false
         hrJob?.cancel()
         hrJob = null
@@ -390,6 +417,8 @@ class LiveSessionViewModel(application: Application) : AndroidViewModel(applicat
             _zoneSeconds.value = emptyMap()
             _actualCalorieCurve.value = emptyList()
             _projectedCalorieCurve.value = null
+            _caloriesAtTarget.value = null
+            _pinnedProjectedCalories.value = null
             _isRecording.value = true
         }
     }
@@ -445,6 +474,8 @@ class LiveSessionViewModel(application: Application) : AndroidViewModel(applicat
             _actualCalorieCurve.value = emptyList()
             _projectedCalorieCurve.value = null
             _projectionBand.value = null
+            _caloriesAtTarget.value = null
+            _pinnedProjectedCalories.value = null
         }
     }
 
@@ -482,6 +513,20 @@ class LiveSessionViewModel(application: Application) : AndroidViewModel(applicat
                         _sessionAvgCalPerMinute.value = cumulativeCalories * 60f / sampleCount
                         _sessionElapsedSeconds.value = sampleCount
 
+                        // One-time capture when elapsed time first reaches the target duration.
+                        // cumulativeCalories is the actual total at that exact second.
+                        // _projectedCalorieCurve holds whatever was last computed (up to 1 min stale — fine).
+                        if (_caloriesAtTarget.value == null &&
+                            sampleCount >= _targetDurationMinutes.value * 60
+                        ) {
+                            _caloriesAtTarget.value = cumulativeCalories
+                            _pinnedProjectedCalories.value = _projectedCalorieCurve.value?.let {
+                                ProjectionCalibrator.interpolateProjection(
+                                    it, _targetDurationMinutes.value.toFloat()
+                                )
+                            }
+                        }
+
                         // Accumulate zone time: zone is already computed above from this reading's bpm.
                         if (zone in 1..5) {
                             zoneSecondsArray[zone]++
@@ -507,12 +552,16 @@ class LiveSessionViewModel(application: Application) : AndroidViewModel(applicat
                                     targetMinutes = _targetDurationMinutes.value.toFloat()
                                 )
                                 val historical = historicalCurve
+                                // Anchor = actual calories right now. Both blend() and applyTo()
+                                // use this so the projected curve always starts from what the
+                                // user has actually burned, not what the historical average says.
+                                val anchorCal = updatedCurve.last().second
                                 val rawProjection = if (
                                     polyProjection != null &&
                                     historical != null &&
                                     _qualifyingSessionCount.value >= HistoricalAverager.BLEND_MIN_SESSIONS
                                 ) {
-                                    HistoricalAverager.blend(polyProjection, historical)
+                                    HistoricalAverager.blend(polyProjection, historical, anchorCal)
                                 } else {
                                     polyProjection
                                 }
@@ -520,7 +569,7 @@ class LiveSessionViewModel(application: Application) : AndroidViewModel(applicat
                                 // MIN_SESSIONS completed sessions have contributed).
                                 val calibrationFactor = ProjectionCalibrator.getCorrectionFactor(getApplication())
                                 _projectedCalorieCurve.value = rawProjection?.let {
-                                    ProjectionCalibrator.applyTo(it, calibrationFactor)
+                                    ProjectionCalibrator.applyTo(it, calibrationFactor, anchorCal)
                                 }
                                 // σ of past ratios — null until ≥5 sessions; drives the
                                 // confidence band on the chart when non-null.

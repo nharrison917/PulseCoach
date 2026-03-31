@@ -138,28 +138,38 @@ class HistoricalAveragerTest {
     // ── blend ─────────────────────────────────────────────────────────────────
 
     @Test
-    fun `blend applies 40-60 weights correctly`() {
-        // Polynomial says 100 cal at minute 15; historical[14] = 15 * 8 = 120 cal
-        // Blend = 0.4 * 100 + 0.6 * 120 = 40 + 72 = 112
-        val polynomial = listOf(15f to 100f)
-        val historical = List(20) { i -> (i + 1) * 8f }   // index i = minute i+1; [14] = 120
+    fun `blend applies 40-60 weights to future increments from anchor`() {
+        // Setup: projection starts at minute 15 (actual = 150 cal), goes to minute 30.
+        // Polynomial at min 15 = 100 (polyAnchor), at min 30 = 280 → polyIncrement = 180.
+        // Historical: index i = minute i+1, so [14] = 120 (histAnchor), [29] = 240 → histIncrement = 120.
+        // Expected at min 30: 150 + 0.4*180 + 0.6*120 = 150 + 72 + 72 = 294.
+        val polynomial = listOf(15f to 100f, 30f to 280f)
+        val historical = List(30) { i -> (i + 1) * 8f }  // [14]=120, [29]=240
+        val anchorCal = 150f
 
-        val result = HistoricalAverager.blend(polynomial, historical)
+        val result = HistoricalAverager.blend(polynomial, historical, anchorCal)
 
-        assertEquals(1, result.size)
-        assertEquals(112f, result[0].second, delta)
+        assertEquals(2, result.size)
+        // First point = anchor (zero increment at the start)
+        assertEquals(anchorCal, result[0].second, delta)
+        // Second point = anchor + blended increments
+        assertEquals(294f, result[1].second, delta)
     }
 
     @Test
-    fun `blend falls back to polynomial when historical is too short`() {
-        // Projection extends to minute 50 but historical only covers 30 min
-        val polynomial = listOf(50f to 500f)
-        val historical = List(30) { i -> (i + 1) * 10f }
+    fun `blend falls back to polynomial rate when historical is too short`() {
+        // Projection starts at minute 30 (anchor = 300), extends to minute 50.
+        // Historical covers only minutes 1-30 (30 elements), so minute 50 is past the end.
+        // Fallback: use polyIncrement for histIncrement → blended = anchor + polyIncrement = 500.
+        val polynomial = listOf(30f to 300f, 50f to 500f)
+        val historical = List(30) { i -> (i + 1) * 10f }  // [29]=300 (anchor covered), [49] out of range
+        val anchorCal = 300f
 
-        val result = HistoricalAverager.blend(polynomial, historical)
+        val result = HistoricalAverager.blend(polynomial, historical, anchorCal)
 
-        // Should fall back to polynomial value (500) for minute 50
-        assertEquals(500f, result[0].second, delta)
+        assertEquals(2, result.size)
+        // Minute 50 uses polynomial's own rate — blended result equals polynomial value
+        assertEquals(500f, result[1].second, delta)
     }
 
     @Test
@@ -167,7 +177,7 @@ class HistoricalAveragerTest {
         val polynomial = listOf(11f to 90f, 12f to 100f, 13f to 110f)
         val historical  = List(20) { i -> (i + 1) * 9f }
 
-        val result = HistoricalAverager.blend(polynomial, historical)
+        val result = HistoricalAverager.blend(polynomial, historical, anchorCal = 90f)
 
         assertEquals(3, result.size)
         assertEquals(11f, result[0].first, delta)

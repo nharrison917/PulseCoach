@@ -227,7 +227,7 @@ class EvaluationViewModel(application: Application) : AndroidViewModel(applicati
                     qualifyingSessions, historicalSamples, targetMin
                 )
 
-                val blended = HistoricalAverager.blend(polyProjection, historical)
+                val blended = HistoricalAverager.blend(polyProjection, historical, observedPoints.last().second)
                 val projectedFinal = blended.lastOrNull()?.second ?: return@mapNotNull null
                 Pair(projectedFinal, session.totalCalories)
             }
@@ -283,7 +283,7 @@ class EvaluationViewModel(application: Application) : AndroidViewModel(applicati
                         sessionsForType, samples, targetMin, durationBucket
                     ) ?: return@mapNotNull null
 
-                    val blended = HistoricalAverager.blend(polyProjection, historical)
+                    val blended = HistoricalAverager.blend(polyProjection, historical, observedPoints.last().second)
                     val projectedFinal = blended.lastOrNull()?.second ?: return@mapNotNull null
                     Pair(projectedFinal, session.totalCalories)
                 }

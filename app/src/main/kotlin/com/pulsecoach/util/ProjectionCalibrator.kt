@@ -90,11 +90,19 @@ object ProjectionCalibrator {
     }
 
     /**
-     * Scales every y-value (calorie amount) in [curve] by [factor].
+     * Applies a bias-correction [factor] to [curve], scaling only the increment above
+     * [anchorCal] so the projection always stays anchored to the user's real current
+     * calorie count. Defaults to 0f (no anchor) when called without an anchor, which
+     * preserves the original "scale everything" behaviour used in tests.
+     *
      * Pure function — does not read SharedPreferences.
      */
-    fun applyTo(curve: List<Pair<Float, Float>>, factor: Float): List<Pair<Float, Float>> =
-        curve.map { (minute, cal) -> minute to cal * factor }
+    fun applyTo(
+        curve: List<Pair<Float, Float>>,
+        factor: Float,
+        anchorCal: Float = 0f
+    ): List<Pair<Float, Float>> =
+        curve.map { (minute, cal) -> minute to (anchorCal + (cal - anchorCal) * factor) }
 
     /**
      * Returns the standard deviation of past actual/projected ratios, or null if

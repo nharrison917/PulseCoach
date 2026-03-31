@@ -182,25 +182,57 @@ object HistoricalAverager {
     /**
      * Blends a polynomial projection with the pre-built historical curve.
      *
-     * Each projected point at minute t becomes:
-     *   POLY_WEIGHT * polynomial(t) + HIST_WEIGHT * historical(t)
+     * Instead of blending raw cumulative calorie totals, this blends the *incremental*
+     * gain forward from the projection start, then adds back [anchorCal] (the real
+     * cumulative calories at the moment the projection begins). This guarantees the
+     * projected curve is always anchored to the user's actual current calories — the
+     * old approach let the 60% historical weight drag the projection below what the
+     * user had already burned when historical sessions had lower effort.
      *
-     * If the historical curve doesn't reach a projected minute (e.g. all qualifying
-     * sessions were shorter than the target), that point falls back to the polynomial
-     * value alone so the chart always has data.
+     * For each projected minute t:
+     *   blended(t) = anchorCal
+     *              + POLY_WEIGHT * (polynomial(t) − polyAnchor)
+     *              + HIST_WEIGHT * (historical(t) − histAnchor)
+     *
+     * where polyAnchor and histAnchor are the respective values at the first projected
+     * minute (the "zero" for the increment calculation).
+     *
+     * If history doesn't reach a given minute (sessions shorter than target), the
+     * polynomial's own increment is used for the historical term so the curve is
+     * continuous without a hard bias pull.
      *
      * @param polynomial  Output of [PolynomialProjector.project] — (minute, calories) pairs.
      * @param historical  Output of [buildCurve] — index i = minute i+1.
+     * @param anchorCal   Actual cumulative calories at the first projected minute.
      */
     fun blend(
         polynomial: List<Pair<Float, Float>>,
-        historical: List<Float>
+        historical: List<Float>,
+        anchorCal: Float
     ): List<Pair<Float, Float>> {
+        if (polynomial.isEmpty()) return emptyList()
+
+        // Baseline polynomial value at the projection start (minute where actual data ends).
+        val polyAnchor = polynomial.first().second
+
+        // Baseline historical value at the same minute; null when history doesn't reach it.
+        val histAnchorIndex = polynomial.first().first.toInt() - 1
+        val histAnchor: Float? = if (histAnchorIndex >= 0 && histAnchorIndex < historical.size)
+            historical[histAnchorIndex] else null
+
         return polynomial.map { (minute, polyCal) ->
-            // Convert 1-based minute to 0-based index into the historical list
             val index = minute.toInt() - 1
-            val histCal = if (index >= 0 && index < historical.size) historical[index] else polyCal
-            minute to (POLY_WEIGHT * polyCal + HIST_WEIGHT * histCal)
+            val polyIncrement = polyCal - polyAnchor
+            // When history covers this minute, blend its increment; otherwise fall back
+            // to the polynomial's own increment so no history = no bias pull.
+            val histIncrement = if (histAnchor != null && index >= 0 && index < historical.size) {
+                historical[index] - histAnchor
+            } else {
+                polyIncrement
+            }
+            val blendedCal = (anchorCal + POLY_WEIGHT * polyIncrement + HIST_WEIGHT * histIncrement)
+                .coerceAtLeast(anchorCal) // calories can never decrease during a session
+            minute to blendedCal
         }
     }
 }
