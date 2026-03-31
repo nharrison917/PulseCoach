@@ -120,6 +120,12 @@ The full analytical rationale and trade-off analysis is in [`ANALYSIS.md`](ANALY
 - Zone time summary bar — proportional color segments with M:SS time-in-zone labels
 - Auto-reconnect on BLE signal drop (up to 5 retries, 3-second backoff)
 
+> **Note — Polar Flow conflict:** The H10 supports only one active BLE connection at a time.
+> If the official Polar Flow app is installed and running in the background, it holds the H10's
+> HR notification subscription, causing PulseCoach to fail on stream start with
+> `PolarServiceNotAvailable`. Force-close Polar Flow before using PulseCoach, or uninstall it.
+> Polar Flow is only needed for firmware updates.
+
 ### Session History
 - Chronological session cards with zone distribution bar, intensity chip, total calories,
   avg BPM, duration
