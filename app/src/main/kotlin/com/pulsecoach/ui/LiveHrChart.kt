@@ -6,6 +6,8 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.tooling.preview.Preview
@@ -56,29 +58,38 @@ fun LiveHrChart(
         CartesianValueFormatter { _, value, _ -> "${value.toInt()}" }
     }
 
-    // X-axis formatter: tick marks appear every 30s (controlled by itemPlacer below).
-    // Only show a label at full-minute positions (multiples of 60); return "" at 30s ticks.
-    // value.toInt() is the second index within the 5-minute window.
+    // X-axis formatter: label slots land every 60s (controlled by itemPlacer below),
+    // so this formatter is only called at minute boundaries — no empty-string case needed.
     val minuteFormatter = remember {
-        CartesianValueFormatter { _, value, _ ->
-            val second = value.toInt()
-            if (second > 0 && second % 60 == 0) "${second / 60}m" else ""
-        }
+        CartesianValueFormatter { _, value, _ -> "${value.toInt() / 60}m" }
     }
 
-    LaunchedEffect(hrHistory) {
-        if (hrHistory.size >= 2) {
-            modelProducer.runTransaction {
-                // Pass explicit x values (0, 1, 2, …) so each reading maps to its
-                // second index within the 300-second window. Combined with the fixed
-                // x range below, this anchors the line to the left edge and leaves
-                // empty space on the right for future data.
-                val xValues = hrHistory.indices.map { it.toDouble() }
-                lineSeries {
-                    series(x = xValues, y = hrHistory.map { it.bpm.toDouble() })
+    // BEGINNER TRAP: LaunchedEffect(hrHistory) cancels and relaunches the coroutine
+    // every second when the list reference changes. Rapid cancellation mid-transaction
+    // can corrupt CartesianChartModelProducer's internal state, causing the chart to
+    // freeze while data keeps accumulating unseen. Fix: key on the stable modelProducer
+    // and use snapshotFlow so a single coroutine processes updates sequentially.
+    //
+    // IMPORTANT: snapshotFlow only tracks Compose State<T> objects — a plain List
+    // parameter is invisible to it (emits once, then stops). rememberUpdatedState wraps
+    // the parameter in a State<T> so snapshotFlow can see each new value.
+    val currentHistory = rememberUpdatedState(hrHistory)
+    LaunchedEffect(modelProducer) {
+        snapshotFlow { currentHistory.value }
+            .collect { history ->
+                if (history.size >= 2) {
+                    modelProducer.runTransaction {
+                        // Pass explicit x values (0, 1, 2, …) so each reading maps to its
+                        // second index within the 300-second window. Combined with the fixed
+                        // x range below, this anchors the line to the left edge and leaves
+                        // empty space on the right for future data.
+                        val xValues = history.indices.map { it.toDouble() }
+                        lineSeries {
+                            series(x = xValues, y = history.map { it.bpm.toDouble() })
+                        }
+                    }
                 }
             }
-        }
     }
 
     // Explicit label component with a known-good ARGB color.
@@ -108,7 +119,8 @@ fun LiveHrChart(
                 // spacing = 30 places a tick mark (and a label slot) every 30 seconds.
                 // The formatter above returns "" at non-minute positions, so only minute
                 // labels appear as text while all 30s ticks still get a tick line.
-                itemPlacer = remember { HorizontalAxis.ItemPlacer.aligned(spacing = 30) },
+                // spacing = 60 places label slots only at full-minute x values (0, 60, 120, …).
+                itemPlacer = remember { HorizontalAxis.ItemPlacer.aligned(spacing = 60) },
             ),
         ),
         modelProducer = modelProducer,
