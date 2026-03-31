@@ -1,6 +1,7 @@
 package com.pulsecoach.ble
 
 import android.content.Context
+import android.util.Log
 import com.polar.sdk.api.PolarBleApi
 import com.polar.sdk.api.PolarBleApiCallback
 import com.polar.sdk.api.PolarBleApiDefaultImpl
@@ -48,6 +49,11 @@ class PolarBleManager(context: Context) {
     /** Public read-only view of the connection state. The ViewModel exposes this to the UI. */
     val connectionState: StateFlow<BleConnectionState> = _connectionState.asStateFlow()
 
+    // Holds the device info from deviceConnected until bleSdkFeatureReady(FEATURE_HR) fires.
+    // We cannot start HR streaming at deviceConnected time — the GATT service isn't ready yet.
+    // bleSdkFeatureReady is the correct gate. This field bridges the two callbacks.
+    private var pendingConnectedDevice: PolarDeviceInfo? = null
+
     init {
         // Register the SDK callback. The SDK calls these functions when connection events happen.
         // BEGINNER TRAP: if you forget to call api.shutDown() in onCleared(), this callback
@@ -55,13 +61,14 @@ class PolarBleManager(context: Context) {
         api.setApiCallback(object : PolarBleApiCallback() {
 
             override fun deviceConnected(polarDeviceInfo: PolarDeviceInfo) {
-                _connectionState.value = BleConnectionState.Connected(
-                    deviceId = polarDeviceInfo.deviceId,
-                    deviceName = polarDeviceInfo.name ?: polarDeviceInfo.deviceId
-                )
+                // Store device info but do NOT emit Connected yet — the HR GATT service
+                // is not ready at this point. bleSdkFeatureReady(FEATURE_HR) is the real gate.
+                Log.d("PulseCoach", "deviceConnected: ${polarDeviceInfo.deviceId} — waiting for FEATURE_HR")
+                pendingConnectedDevice = polarDeviceInfo
             }
 
             override fun deviceDisconnected(polarDeviceInfo: PolarDeviceInfo) {
+                pendingConnectedDevice = null
                 _connectionState.value = BleConnectionState.Disconnected
             }
 
@@ -69,13 +76,24 @@ class PolarBleManager(context: Context) {
                 _connectionState.value = BleConnectionState.Connecting(polarDeviceInfo.deviceId)
             }
 
-            // bleSdkFeatureReady fires when a feature (like HR streaming) becomes available
-            // after connection. We don't need to act on it here — the ViewModel will start
-            // the HR stream after the Connected state is observed.
+            // bleSdkFeatureReady fires when a specific GATT service is fully discovered and
+            // ready to use. FEATURE_HR means startHrStreaming() is now safe to call.
+            // This is the correct place to emit Connected — not deviceConnected.
             override fun bleSdkFeatureReady(
                 identifier: String,
                 feature: PolarBleApi.PolarBleSdkFeature
-            ) { /* no-op for now */ }
+            ) {
+                Log.d("PulseCoach", "bleSdkFeatureReady: $feature for $identifier")
+                if (feature == PolarBleApi.PolarBleSdkFeature.FEATURE_HR) {
+                    val device = pendingConnectedDevice
+                    if (device != null) {
+                        _connectionState.value = BleConnectionState.Connected(
+                            deviceId = device.deviceId,
+                            deviceName = device.name ?: device.deviceId
+                        )
+                    }
+                }
+            }
 
             override fun disInformationReceived(identifier: String, uuid: java.util.UUID, value: String) {
                 /* Device information — not needed in Phase 1 */
@@ -180,6 +198,7 @@ class PolarBleManager(context: Context) {
                     }
                 },
                 { error ->
+                    Log.e("PulseCoach", "HR stream error — type: ${error.javaClass.name}, message: ${error.message}", error)
                     _connectionState.value = BleConnectionState.Error("HR stream error: ${error.message}")
                     close(error)
                 },
