@@ -37,6 +37,32 @@ object ZoneCalculator {
         else -> Color(0xFF9E9E9E) // Grey   — No data
     }
 
+    /**
+     * Computes zone upper-bound thresholds using the Karvonen (heart rate reserve) formula.
+     *
+     * Each zone boundary is set at the TOP of that zone's intensity range:
+     *   Z1 top = 60% HRR, Z2 top = 70%, Z3 top = 80%, Z4 top = 90%
+     *
+     * Formula: targetHr = restingHr + intensity * (maxHr - restingHr)
+     *
+     * Requires maxHr > restingHr; returns null if inputs are physiologically invalid.
+     */
+    fun karvonenZones(restingHr: Int, maxHr: Int): ZoneConfig? {
+        if (maxHr <= restingHr) return null
+        val hrr = maxHr - restingHr
+        // Intensity percentages are the upper bound of each zone's HRR range
+        val z1Max = (restingHr + 0.60 * hrr).toInt()
+        val z2Max = (restingHr + 0.70 * hrr).toInt()
+        val z3Max = (restingHr + 0.80 * hrr).toInt()
+        val z4Max = (restingHr + 0.90 * hrr).toInt()
+        return ZoneConfig(
+            zone1MaxBpm = z1Max,
+            zone2MaxBpm = z2Max,
+            zone3MaxBpm = z3Max,
+            zone4MaxBpm = z4Max
+        )
+    }
+
     /** Returns a dark color that stays readable on top of any zone background. */
     fun textColorForZone(zone: Int): Color = when (zone) {
         1, 2, 3 -> Color(0xFF1A1A1A) // Dark text on light backgrounds

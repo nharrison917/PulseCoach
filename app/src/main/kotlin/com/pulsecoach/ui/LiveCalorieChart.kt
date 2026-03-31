@@ -55,6 +55,10 @@ fun LiveCalorieChart(
     projectedPoints: List<Pair<Float, Float>>?,
     isBlended: Boolean = false,
     projectionBand: Float? = null,
+    projectedFinalCalories: Float? = null,
+    isOverTarget: Boolean = false,
+    caloriesAtTarget: Float? = null,
+    targetDurationMinutes: Int = 0,
     modifier: Modifier = Modifier
 ) {
     val modelProducer = remember { CartesianChartModelProducer() }
@@ -67,7 +71,12 @@ fun LiveCalorieChart(
     }
 
     val primaryColor   = MaterialTheme.colorScheme.primary
-    val projectedColor = primaryColor.copy(alpha = 0.45f)
+    // Gray out the projection once the session has passed the target — it becomes historical context.
+    val projectedColor = if (isOverTarget) {
+        MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.35f)
+    } else {
+        primaryColor.copy(alpha = 0.45f)
+    }
     // Band lines: same hue at very low opacity so they frame without distracting
     val bandColor      = primaryColor.copy(alpha = 0.20f)
 
@@ -146,19 +155,26 @@ fun LiveCalorieChart(
                 .weight(1f)
         )
 
-        // Caption: projection mode, start minute, and band width when active
+        // Caption: projection mode, start minute, band width, and projected final calorie when available.
+        // When the session has passed the target, simplify to a pinned summary line.
+        val projectedLabel = projectedFinalCalories?.let { "  \u2022  ~${it.toInt()} cal projected" } ?: ""
         val caption = when {
+            isOverTarget -> {
+                // Projection has served its purpose — show pinned value or a neutral label.
+                if (projectedFinalCalories != null) "~${projectedFinalCalories.toInt()} cal projected at $targetDurationMinutes min"
+                else "Session over target"
+            }
             projectedPoints == null -> "Projection starts after 10 min"
             projectionBand != null -> {
                 val startMinute = actualPoints.last().first.toInt()
                 val mode = if (isBlended) "Historical blend" else "Polynomial projection"
                 val pct = (projectionBand * 100).toInt()
-                "$mode from min $startMinute  \u2022  \u00b1${pct}% historical range"
+                "$mode from min $startMinute  \u2022  \u00b1${pct}% historical range$projectedLabel"
             }
             else -> {
                 val startMinute = actualPoints.last().first.toInt()
                 val mode = if (isBlended) "Historical blend" else "Polynomial projection"
-                "$mode from min $startMinute"
+                "$mode from min $startMinute$projectedLabel"
             }
         }
         Text(
@@ -167,6 +183,15 @@ fun LiveCalorieChart(
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
         )
+        // Second line: actual calories at the target minute, shown only once the session passes target.
+        if (caloriesAtTarget != null) {
+            Text(
+                text = "Actual at $targetDurationMinutes min: ${caloriesAtTarget.toInt()} cal",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
+            )
+        }
     }
 }
 

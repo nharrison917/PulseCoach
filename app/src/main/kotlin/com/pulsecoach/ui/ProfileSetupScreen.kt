@@ -61,6 +61,8 @@ fun ProfileSetupScreen(
     val age by viewModel.age.collectAsStateWithLifecycle()
     val weightKg by viewModel.weightKg.collectAsStateWithLifecycle()
     val sex by viewModel.sex.collectAsStateWithLifecycle()
+    val restingHr by viewModel.restingHr.collectAsStateWithLifecycle()
+    val maxHr by viewModel.maxHr.collectAsStateWithLifecycle()
 
     // Only show the validation error message after the user first tries to save
     var showError by remember { mutableStateOf(false) }
@@ -160,6 +162,45 @@ fun ProfileSetupScreen(
                             )
                         }
                     }
+                }
+            }
+
+            // --- Optional: HR data for Karvonen zone auto-calculation ---
+            Column {
+                Text(
+                    "HR Zone Data (optional)",
+                    style = MaterialTheme.typography.bodyLarge,
+                    fontWeight = FontWeight.Medium
+                )
+                Text(
+                    "Used in Settings to auto-calculate zone thresholds via the Karvonen formula. " +
+                        "Leave blank to set zones manually.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Spacer(Modifier.height(12.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    OutlinedTextField(
+                        value = restingHr,
+                        onValueChange = { viewModel.onRestingHrChange(it.filter { c -> c.isDigit() }) },
+                        label = { Text("Resting HR") },
+                        suffix = { Text("bpm") },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        singleLine = true,
+                        modifier = Modifier.weight(1f)
+                    )
+                    OutlinedTextField(
+                        value = maxHr,
+                        onValueChange = { viewModel.onMaxHrChange(it.filter { c -> c.isDigit() }) },
+                        label = { Text("Max HR") },
+                        suffix = { Text("bpm") },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        singleLine = true,
+                        modifier = Modifier.weight(1f)
+                    )
                 }
             }
 

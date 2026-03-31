@@ -65,6 +65,7 @@ import com.pulsecoach.model.BleConnectionState
 import com.pulsecoach.model.FoundDevice
 import com.pulsecoach.model.HrReading
 import com.pulsecoach.model.SessionType
+import com.pulsecoach.util.ProjectionCalibrator
 import com.pulsecoach.util.ZoneCalculator
 import com.pulsecoach.viewmodel.LiveSessionViewModel
 
@@ -122,6 +123,8 @@ fun LiveSessionScreen(
     val sessionType              by viewModel.sessionType.collectAsStateWithLifecycle()
     val isReconnecting           by viewModel.isReconnecting.collectAsStateWithLifecycle()
     val zoneSeconds              by viewModel.zoneSeconds.collectAsStateWithLifecycle()
+    val caloriesAtTarget         by viewModel.caloriesAtTarget.collectAsStateWithLifecycle()
+    val pinnedProjectedCalories  by viewModel.pinnedProjectedCalories.collectAsStateWithLifecycle()
 
     Scaffold(
         topBar = {
@@ -183,6 +186,8 @@ fun LiveSessionScreen(
                             isBlended = qualifyingSessionCount >= 10,
                             sessionType = sessionType,
                             zoneSeconds = zoneSeconds,
+                            caloriesAtTarget = caloriesAtTarget,
+                            pinnedProjectedCalories = pinnedProjectedCalories,
                             onTargetDurationChange = viewModel::setTargetDuration,
                             onSessionTypeChange = viewModel::setSessionType,
                             onStartRecording = viewModel::startRecording,
@@ -374,6 +379,8 @@ private fun ConnectedContent(
     isBlended: Boolean,
     sessionType: SessionType?,
     zoneSeconds: Map<Int, Int>,
+    caloriesAtTarget: Float?,
+    pinnedProjectedCalories: Float?,
     onTargetDurationChange: (Int) -> Unit,
     onSessionTypeChange: (SessionType?) -> Unit,
     onStartRecording: () -> Unit,
@@ -433,11 +440,24 @@ private fun ConnectedContent(
 
         // Calorie chart — only shown while recording and once 2+ data points exist
         if (isRecording && actualCalorieCurve.size >= 2) {
+            // Interpolate the projected curve at the target duration to get a single numeric label.
+            // interpolateProjection returns null when the curve is empty or hasn't reached the target yet.
+            val projectedFinal = projectedCalorieCurve?.let {
+                ProjectionCalibrator.interpolateProjection(it, targetDurationMinutes.toFloat())
+            }
+            // Once the session crosses the target, use the value frozen at that moment rather
+            // than the live re-projected value (which would keep shifting as data accumulates).
+            val displayProjectedCalories = pinnedProjectedCalories ?: projectedFinal
+            val isOverTarget = sessionElapsedSeconds / 60 >= targetDurationMinutes
             LiveCalorieChart(
                 actualPoints = actualCalorieCurve,
                 projectedPoints = projectedCalorieCurve,
                 projectionBand = projectionBand,
                 isBlended = isBlended,
+                projectedFinalCalories = displayProjectedCalories,
+                isOverTarget = isOverTarget,
+                caloriesAtTarget = caloriesAtTarget,
+                targetDurationMinutes = targetDurationMinutes,
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(160.dp)
@@ -851,6 +871,8 @@ private fun PreviewConnectedIdle() {
             isBlended = false,
             sessionType = SessionType.STEADY,
             zoneSeconds = emptyMap(),
+            caloriesAtTarget = null,
+            pinnedProjectedCalories = null,
             onTargetDurationChange = {},
             onSessionTypeChange = {},
             onStartRecording = {},
@@ -885,6 +907,8 @@ private fun PreviewConnectedRecording() {
             isBlended = false,
             sessionType = null,
             zoneSeconds = mapOf(1 to 120, 2 to 480, 3 to 600, 4 to 180, 5 to 6),
+            caloriesAtTarget = null,
+            pinnedProjectedCalories = null,
             onTargetDurationChange = {},
             onSessionTypeChange = {},
             onStartRecording = {},

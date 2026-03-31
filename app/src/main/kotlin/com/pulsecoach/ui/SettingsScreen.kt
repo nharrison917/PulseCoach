@@ -15,6 +15,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.Button
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -23,11 +24,13 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Slider
+import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -79,6 +82,11 @@ fun SettingsScreen(
         draft4 = saved.zone4MaxBpm
     }
 
+    // Not persisted — acts as a "calculate now" trigger. Checked = formula controls the sliders.
+    var useKarvonen by remember { mutableStateOf(false) }
+    // Read once on composition; changes to profile require navigating away and back.
+    val karvonenAvailable = remember { viewModel.karvonenInputsAvailable }
+
     Scaffold(
         topBar = {
             TopAppBar(
@@ -106,6 +114,43 @@ fun SettingsScreen(
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
 
+            Spacer(Modifier.height(12.dp))
+
+            // Karvonen checkbox — only enabled when profile has restingHr + maxHr set
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Checkbox(
+                    checked = useKarvonen,
+                    onCheckedChange = { checked ->
+                        if (checked) {
+                            // Snap slider drafts to formula values when the box is checked
+                            val zones = viewModel.karvonenZonesOrNull()
+                            if (zones != null) {
+                                draft1 = zones.zone1MaxBpm
+                                draft2 = zones.zone2MaxBpm
+                                draft3 = zones.zone3MaxBpm
+                                draft4 = zones.zone4MaxBpm
+                                useKarvonen = true
+                            }
+                        } else {
+                            useKarvonen = false
+                        }
+                    },
+                    enabled = karvonenAvailable
+                )
+                Column(modifier = Modifier.weight(1f).padding(start = 4.dp)) {
+                    Text("Use Karvonen Formula", style = MaterialTheme.typography.bodyMedium)
+                    Text(
+                        if (karvonenAvailable) "Auto-calculate zones from your resting and max HR"
+                        else "Set resting HR and max HR in your profile first",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+
             Spacer(Modifier.height(16.dp))
 
             // Zone preview strip — updates live as sliders move
@@ -124,7 +169,8 @@ fun SettingsScreen(
                 description = "below ${draft1 + 1} bpm",
                 value = draft1,
                 valueRange = BPM_MIN..(draft2 - ZONE_GAP),
-                onValueChange = { draft1 = it }
+                formulaControlled = useKarvonen,
+                onValueChange = { useKarvonen = false; draft1 = it }
             )
 
             ZoneSlider(
@@ -133,7 +179,8 @@ fun SettingsScreen(
                 description = "${draft1 + 1}–$draft2 bpm",
                 value = draft2,
                 valueRange = (draft1 + ZONE_GAP)..(draft3 - ZONE_GAP),
-                onValueChange = { draft2 = it }
+                formulaControlled = useKarvonen,
+                onValueChange = { useKarvonen = false; draft2 = it }
             )
 
             ZoneSlider(
@@ -142,7 +189,8 @@ fun SettingsScreen(
                 description = "${draft2 + 1}–$draft3 bpm",
                 value = draft3,
                 valueRange = (draft2 + ZONE_GAP)..(draft4 - ZONE_GAP),
-                onValueChange = { draft3 = it }
+                formulaControlled = useKarvonen,
+                onValueChange = { useKarvonen = false; draft3 = it }
             )
 
             ZoneSlider(
@@ -151,7 +199,8 @@ fun SettingsScreen(
                 description = "${draft3 + 1}–$draft4 bpm",
                 value = draft4,
                 valueRange = (draft3 + ZONE_GAP)..(BPM_MAX - ZONE_GAP),
-                onValueChange = { draft4 = it }
+                formulaControlled = useKarvonen,
+                onValueChange = { useKarvonen = false; draft4 = it }
             )
 
             // Zone 5 is implicit — no slider needed
@@ -216,7 +265,7 @@ fun SettingsScreen(
                 onClick = onNavigateToProfile,
                 modifier = Modifier.fillMaxWidth()
             ) {
-                Text("Edit Profile (age, weight, sex)")
+                Text("Edit Profile (age, weight, sex, resting/max HR)")
             }
 
             Spacer(Modifier.height(24.dp))
@@ -232,8 +281,21 @@ private fun ZoneSlider(
     description: String,
     value: Int,
     valueRange: IntRange,
-    onValueChange: (Int) -> Unit
+    onValueChange: (Int) -> Unit,
+    formulaControlled: Boolean = false
 ) {
+    // When the formula is in control, dim the slider thumb and track to signal read-only intent.
+    // The slider stays interactive — dragging it will clear formulaControlled via onValueChange.
+    val sliderColors = if (formulaControlled) {
+        SliderDefaults.colors(
+            thumbColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.4f),
+            activeTrackColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.4f),
+            inactiveTrackColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.12f)
+        )
+    } else {
+        SliderDefaults.colors()
+    }
+
     Column(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Box(
@@ -246,6 +308,14 @@ private fun ZoneSlider(
                 Text(label, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium)
                 Text(description, style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant)
+                // Sublabel visible only when the formula is controlling this slider
+                if (formulaControlled) {
+                    Text(
+                        "Karvonen formula",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.6f)
+                    )
+                }
             }
             // Current threshold value displayed on the right
             Text(
@@ -260,6 +330,7 @@ private fun ZoneSlider(
             onValueChange = { onValueChange(it.toInt()) },
             valueRange = valueRange.first.toFloat()..valueRange.last.toFloat(),
             steps = valueRange.last - valueRange.first - 1,
+            colors = sliderColors,
             modifier = Modifier.fillMaxWidth()
         )
     }

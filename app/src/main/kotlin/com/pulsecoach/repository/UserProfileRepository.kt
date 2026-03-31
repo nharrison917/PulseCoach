@@ -20,6 +20,8 @@ class UserProfileRepository(context: Context) {
         private const val KEY_AGE = "profile_age"
         private const val KEY_WEIGHT_KG = "profile_weight_kg"
         private const val KEY_SEX = "profile_sex"
+        private const val KEY_RESTING_HR = "profile_resting_hr"
+        private const val KEY_MAX_HR = "profile_max_hr"
         const val KEY_COMPLETE = "profile_complete"
     }
 
@@ -31,12 +33,17 @@ class UserProfileRepository(context: Context) {
      */
     fun getProfile(): UserProfile? {
         if (!isProfileComplete()) return null
+        // -1 is the "not set" sentinel — Int? can't be stored directly in SharedPreferences
+        val restingHr = prefs.getInt(KEY_RESTING_HR, -1).takeIf { it != -1 }
+        val maxHr = prefs.getInt(KEY_MAX_HR, -1).takeIf { it != -1 }
         return UserProfile(
             age = prefs.getInt(KEY_AGE, 0),
             weightKg = prefs.getFloat(KEY_WEIGHT_KG, 0f),
             sex = BiologicalSex.valueOf(
                 prefs.getString(KEY_SEX, BiologicalSex.MALE.name)!!
-            )
+            ),
+            restingHr = restingHr,
+            maxHr = maxHr
         )
     }
 
@@ -46,11 +53,16 @@ class UserProfileRepository(context: Context) {
      * the value to persist before the next line runs.
      */
     fun saveProfile(profile: UserProfile) {
-        prefs.edit()
+        val editor = prefs.edit()
             .putInt(KEY_AGE, profile.age)
             .putFloat(KEY_WEIGHT_KG, profile.weightKg)
             .putString(KEY_SEX, profile.sex.name)
             .putBoolean(KEY_COMPLETE, true)
-            .apply()
+        // Store -1 when null so we can distinguish "not set" from 0
+        if (profile.restingHr != null) editor.putInt(KEY_RESTING_HR, profile.restingHr)
+        else editor.remove(KEY_RESTING_HR)
+        if (profile.maxHr != null) editor.putInt(KEY_MAX_HR, profile.maxHr)
+        else editor.remove(KEY_MAX_HR)
+        editor.apply()
     }
 }

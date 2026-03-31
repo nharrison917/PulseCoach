@@ -64,9 +64,6 @@ including ETS, splines, and Kalman filtering.
 
 ---
 
-## Screenshots
-Screenshots coming — requires enough physical H10 sessions to show live data. See Debug Tools for the synthetic session seeder.
-
 ---
 
 ## Projection Engine

@@ -7,5 +7,8 @@ enum class BiologicalSex { MALE, FEMALE }
 data class UserProfile(
     val age: Int,
     val weightKg: Float,
-    val sex: BiologicalSex
+    val sex: BiologicalSex,
+    // Optional — only needed for Karvonen zone auto-calculation
+    val restingHr: Int? = null,
+    val maxHr: Int? = null
 )

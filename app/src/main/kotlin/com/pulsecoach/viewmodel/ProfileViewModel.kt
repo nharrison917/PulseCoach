@@ -32,6 +32,14 @@ class ProfileViewModel(application: Application) : AndroidViewModel(application)
     private val _sex = MutableStateFlow(BiologicalSex.MALE)
     val sex: StateFlow<BiologicalSex> = _sex.asStateFlow()
 
+    // Optional — used only for Karvonen zone calculation. Stored as String so
+    // the TextField can hold partial input without constant parse errors.
+    private val _restingHr = MutableStateFlow("")
+    val restingHr: StateFlow<String> = _restingHr.asStateFlow()
+
+    private val _maxHr = MutableStateFlow("")
+    val maxHr: StateFlow<String> = _maxHr.asStateFlow()
+
     init {
         // Pre-populate fields if the user is editing an existing profile
         val existing = repository.getProfile()
@@ -39,6 +47,8 @@ class ProfileViewModel(application: Application) : AndroidViewModel(application)
             _age.value = existing.age.toString()
             _weightKg.value = existing.weightKg.toString()
             _sex.value = existing.sex
+            _restingHr.value = existing.restingHr?.toString() ?: ""
+            _maxHr.value = existing.maxHr?.toString() ?: ""
         }
     }
 
@@ -51,16 +61,28 @@ class ProfileViewModel(application: Application) : AndroidViewModel(application)
     /** Updates the selected biological sex. */
     fun onSexChange(value: BiologicalSex) { _sex.value = value }
 
+    /** Updates the draft resting HR string as the user types. */
+    fun onRestingHrChange(value: String) { _restingHr.value = value }
+
+    /** Updates the draft max HR string as the user types. */
+    fun onMaxHrChange(value: String) { _maxHr.value = value }
+
     /**
-     * Validates fields and saves the profile.
-     * @return true if save succeeded, false if any field is out of range.
+     * Validates required fields and saves the profile.
+     * restingHr and maxHr are optional — blank input is saved as null.
+     * @return true if save succeeded, false if any required field is out of range.
      */
     fun saveProfile(): Boolean {
         val age = _age.value.toIntOrNull() ?: return false
         val weight = _weightKg.value.toFloatOrNull() ?: return false
         if (age !in 10..100) return false
         if (weight !in 30f..250f) return false
-        repository.saveProfile(UserProfile(age, weight, _sex.value))
+
+        // Parse optional HR fields — null if blank or invalid
+        val restingHr = _restingHr.value.toIntOrNull()
+        val maxHr = _maxHr.value.toIntOrNull()
+
+        repository.saveProfile(UserProfile(age, weight, _sex.value, restingHr, maxHr))
         return true
     }
 }
