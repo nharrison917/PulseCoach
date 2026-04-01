@@ -4,6 +4,16 @@ All notable changes to PulseCoach are documented here, organized by development 
 
 ---
 
+## Selectable App Themes
+
+- Added `AppTheme` enum with three options: **Default** (light, blue primary), **Dark** (deep neutral backgrounds, soft blue primary), **Synthwave** (indigo-black, neon magenta + electric cyan — Outrun aesthetic)
+- `ThemeRepository` persists the selection in SharedPreferences (`pulse_coach_theme`)
+- `MainActivity` holds theme state as `mutableStateOf`; wraps the entire composition in `MaterialTheme(colorScheme = selectedTheme.colorScheme)` — theme changes take effect instantly without an Activity restart
+- Status bar icon color is reactive: Default → dark icons; Dark/Synthwave → light icons via `SideEffect` + `enableEdgeToEdge`
+- Theme selector (Material3 `ExposedDropdownMenuBox`) added to the bottom of the Settings screen under a new **Appearance** section
+
+---
+
 ## HR Chart — Dynamic Y-Axis Zoom
 
 - Y-axis now tracks the actual data range for the current 5-minute window ±10 bpm on each side, so steady-state workouts fill the chart height instead of being squashed against a fixed 50 bpm floor
