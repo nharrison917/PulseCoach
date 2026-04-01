@@ -98,15 +98,27 @@ fun LiveHrChart(
     val onSurface = MaterialTheme.colorScheme.onSurface.toArgb()
     val axisLabel = remember(onSurface) { TextComponent(color = onSurface) }
 
+    // Dynamic y-range: zoom to the actual data window ±10 bpm once enough readings
+    // exist, so steady-state workouts aren't squashed against a fixed 50 bpm floor.
+    // Falls back to minY = 50 / auto-top when fewer than 10 readings are available.
+    val (dynamicMinY, dynamicMaxY) = if (hrHistory.size >= 10) {
+        val minBpm = hrHistory.minOf { it.bpm }
+        val maxBpm = hrHistory.maxOf { it.bpm }
+        (minBpm - 10).toDouble() to (maxBpm + 10).toDouble()
+    } else {
+        50.0 to null  // null maxY lets Vico auto-scale the top
+    }
+
     CartesianChartHost(
         chart = rememberCartesianChart(
             rememberLineCartesianLayer(
                 // minX/maxX pin the x-axis to the full 5-minute window regardless of
-                // how much data has arrived. minY = 50 gives a stable floor.
+                // how much data has arrived. minY/maxY track the live data range.
                 rangeProvider = CartesianLayerRangeProvider.fixed(
                     minX = 0.0,
                     maxX = WINDOW_SECONDS.toDouble(),
-                    minY = 50.0
+                    minY = dynamicMinY,
+                    maxY = dynamicMaxY
                 )
             ),
             startAxis = VerticalAxis.rememberStart(

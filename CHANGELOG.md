@@ -4,6 +4,14 @@ All notable changes to PulseCoach are documented here, organized by development 
 
 ---
 
+## HR Chart — Dynamic Y-Axis Zoom
+
+- Y-axis now tracks the actual data range for the current 5-minute window ±10 bpm on each side, so steady-state workouts fill the chart height instead of being squashed against a fixed 50 bpm floor
+- Falls back to `minY = 50` / auto-top when fewer than 10 readings have been recorded (clean startup state)
+- Axis labels move as the range shifts — intentional; accurate scale matters more than label stability
+
+---
+
 ## HR Chart — 5-Minute Fixed Window
 
 - `MAX_HR_HISTORY` increased from 60 → 300 samples (5 minutes at 1 Hz)
