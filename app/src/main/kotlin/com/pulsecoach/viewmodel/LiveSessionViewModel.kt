@@ -485,6 +485,9 @@ class LiveSessionViewModel(application: Application) : AndroidViewModel(applicat
             bleManager.streamHeartRate(deviceId)
                 .catch { /* connectionState already reflects the error */ }
                 .collect { reading ->
+                    // Sub-30 bpm readings are sensor noise (physically impossible during exercise).
+                    // Letting them through would crater the dynamic y-axis and pollute calorie totals.
+                    if (reading.bpm < 30) return@collect
                     val zone = ZoneCalculator.zoneForBpm(reading.bpm, zoneConfig.value)
                     _latestHr.value = reading
                     _currentZone.value = zone
