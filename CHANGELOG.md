@@ -11,6 +11,12 @@ All notable changes to PulseCoach are documented here, organized by development 
 - `MainActivity` holds theme state as `mutableStateOf`; wraps the entire composition in `MaterialTheme(colorScheme = selectedTheme.colorScheme)` — theme changes take effect instantly without an Activity restart
 - Status bar icon color is reactive: Default → dark icons; Dark/Synthwave → light icons via `SideEffect` + `enableEdgeToEdge`
 - Theme selector (Material3 `ExposedDropdownMenuBox`) added to the bottom of the Settings screen under a new **Appearance** section
+## Bug Fix — Spurious 0 BPM Readings Corrupting HR Chart Y-Axis
+
+- Polar H10 occasionally emits a 0 (or near-zero) BPM sample during connection; these values collapsed the dynamic y-axis range to include 0, making the chart unreadable
+- Added a `< 30 bpm` guard at the top of the HR sample collector in `LiveSessionViewModel` — sub-30 readings are skipped entirely via `return@collect`
+- The guard drops the bad sample before it reaches chart history, zone classification, calorie accumulation, or Room — no downstream effects
+- 30 bpm chosen as the threshold: physically impossible during any exercise, well clear of the lowest valid resting HR
 
 ---
 
