@@ -145,3 +145,11 @@ Polar BLE SDK 5.4.0
 
 Material XML Theme
 •	The app theme in res/values/themes.xml uses Theme.Material3.DayNight.NoActionBar. This requires the com.google.android.material:material:1.12.0 library even though the rest of the UI is Compose. Without it, processDebugResources fails.
+
+## AI Codex Index
+
+This project has a pre-built index in `.ai-codex/` to reduce cold-start token usage.
+Read these files at the start of each session before exploring the codebase:
+
+- `.ai-codex/lib.md`       -- all functions and classes, grouped by module
+- `.ai-codex/structure.md` -- directory tree and key file descriptions

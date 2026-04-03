@@ -4,6 +4,19 @@ All notable changes to PulseCoach are documented here, organized by development 
 
 ---
 
+## AI Codex Index
+
+- `.ai-codex/` directory added to the repo root with five pre-built index files:
+  `lib.md` (all public functions and classes, grouped by module),
+  `structure.md` (directory tree and key file descriptions),
+  `components.md`, `pages.md`, `routes.md`
+- `claude.md` updated with an **AI Codex Index** section pointing to these files so
+  each new session can load the index instead of grepping the codebase from scratch
+- Intent: reduce cold-start token cost and keep AI assistance focused on logic rather
+  than rediscovering structure
+
+---
+
 ## HR Chart — Dynamic Y-Axis Zoom
 
 - Y-axis now tracks the actual data range for the current 5-minute window ±10 bpm on each side, so steady-state workouts fill the chart height instead of being squashed against a fixed 50 bpm floor
