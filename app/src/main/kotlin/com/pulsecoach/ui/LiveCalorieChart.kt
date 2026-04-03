@@ -10,6 +10,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
@@ -77,8 +78,8 @@ fun LiveCalorieChart(
     } else {
         primaryColor.copy(alpha = 0.45f)
     }
-    // Band lines: same hue at very low opacity so they frame without distracting
-    val bandColor      = primaryColor.copy(alpha = 0.20f)
+    // Band lines: white at mid opacity — readable across light, dark, and synthwave themes
+    val bandColor      = Color.White.copy(alpha = 0.45f)
 
     val onSurface  = MaterialTheme.colorScheme.onSurface.toArgb()
     val axisLabel  = remember(onSurface) { TextComponent(color = onSurface) }
