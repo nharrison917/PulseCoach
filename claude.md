@@ -25,7 +25,8 @@ com.pulsecoach/
   ble/          Polar SDK wrapper and HR stream logic
   model/        Pure data classes (Session, HrSample, HrReading, ZoneConfig, UserProfile, SessionType)
   util/         CalorieCalculator, ZoneCalculator, CsvExporter, PolynomialProjector,
-                HistoricalAverager, SyntheticSessionGenerator, ProjectionCalibrator
+                HistoricalAverager, SyntheticSessionGenerator, ProjectionCalibrator,
+                RecordingStateHolder (singleton MutableStateFlow<Boolean> — written by LiveSessionViewModel, read by SettingsViewModel + ProfileViewModel)
 State Management
 Use StateFlow and collectAsState() in Compose. Avoid LiveData — StateFlow is the current standard.
 
@@ -71,7 +72,7 @@ Data Storage
 •	Room database: PulseCoachDatabase (version 5, increment on schema change with migration).
 •	Tables: sessions, hr_samples, zone_config.
 •	Migrations: 1→2, 2→3 (sessionType TEXT), 3→4 (zone1Seconds–zone5Seconds INTEGER NOT NULL DEFAULT 0), 4→5 (maxBpm INTEGER NOT NULL DEFAULT 0).
-•	User profile (age, weight, sex): SharedPreferences ("user_profile"), not Room.
+•	User profile (age, weight, sex): SharedPreferences ("user_profile"), not Room. Keys include `profile_use_lbs` (Boolean, default false). `UserProfile.weightKg` is always stored in kg regardless of display unit; `useLbs` is a display preference only — conversion happens at the UI boundary in ProfileViewModel.
 •	Calibration state: SharedPreferences ("pulse_coach_calibration") — keys: proj_correction_factor (Float), proj_correction_n (Int), proj_ratios (String, comma-separated).
 •	Never delete session data without explicit user confirmation.
 •	Storage estimate: ~150 KB per 30-minute session in Room; ~90 KB as CSV export.
@@ -136,7 +137,7 @@ Vico 2.0.0-beta.3
 •	Multi-series with different x ranges: use series(x = listOf(...), y = listOf(...)) with explicit x values. Both series in one LineCartesianLayer with LineProvider.series(line0, line1) — series index maps to line style.
 •	x values must have at most 4 decimal places of precision (Vico validates via getXDeltaGcd). NEVER use fractional offsets like + 0.01f as dummy x values — IEEE 754 float representation of 0.01 is imprecise and will trigger IllegalArgumentException. Use whole-number offsets like + 1f instead (integers are always exact in float).
 •	Axis label TextComponent: rememberTextComponent does NOT exist in com.patrykandpatrick.vico.compose.common for this version. Use TextComponent directly from com.patrykandpatrick.vico.core.common.component.TextComponent. Pass an ARGB int, not a Compose Color: val onSurface = MaterialTheme.colorScheme.onSurface.toArgb(); val axisLabel = remember(onSurface) { TextComponent(color = onSurface) }
-•	LiveCalorieChart uses 4 series (actual / projected / upper band / lower band). All 4 must always be present in the model — use 2-point dummies at the last actual position when a series has no real data.
+•	LiveCalorieChart uses 2 series (actual / projected). The projected series must always be present in the model — use a 2-point flat dummy at the last actual position when projection is not yet available. Confidence band is shown as a caption endpoint annotation, not as chart lines.
 •	HorizontalAxis.ItemPlacer: use HorizontalAxis.ItemPlacer.aligned(spacing = N) to place ticks and label slots every N x-units. Pass as itemPlacer = remember { HorizontalAxis.ItemPlacer.aligned(spacing = N) } to rememberBottom(). NEVER return "" from a CartesianValueFormatter — Vico throws IllegalStateException ("format returned an empty string"). To suppress labels at certain positions, set ItemPlacer spacing so slots only land where you want labels, not at every tick. For explicit x-values use series(x = listOf(...), y = listOf(...)); both params accept Collection<Number>.
 
 Polar BLE SDK 5.4.0
