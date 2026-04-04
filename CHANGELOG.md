@@ -4,6 +4,27 @@ All notable changes to PulseCoach are documented here, organized by development 
 
 ---
 
+## Live Session Improvements
+
+### Feature A — Calorie chart: confidence band → endpoint annotation
+- Dropped `LiveCalorieChart` from 4-series to 2-series (actual + projected); removed `upperBandLine`, `lowerBandLine`, `bandColor`, and the `Color` import
+- When `projectionBand` is active, the confidence range is now shown as a caption annotation at the target endpoint: `"Historical blend  •  15-min session  •  ~660–730 cal at 30m"` — no band lines drawn
+- `CLAUDE.md` gotcha updated from 4-series to 2-series
+
+### Feature B — First-projection callout
+- `LiveSessionViewModel` captures the projected endpoint value the first time projection fires (min 10) into `_firstProjectedCalories: StateFlow<Float?>`; one-time capture, reset on each new session
+- After the session passes the target, a third caption line appears: `"Projected at min 10: ~X cal"` — lets the user see how accurate the earliest projection was
+
+### Feature C — Chart caption wording fix
+- Caption was reading `"Polynomial projection from min 32"` where 32 is the session length, not the observation window start — misleading
+- Changed to `"Polynomial projection  •  32-min session"` on both the plain and band-active caption variants
+
+### Feature D — Stop Connecting button
+- `LiveSessionViewModel.stopConnecting()` added: casts `connectionState` to `BleConnectionState.Connecting`, extracts `deviceId`, calls `bleManager.disconnectFromDevice()`
+- `ConnectingContent` gains an `onStopConnecting` parameter and a `TextButton("Stop connecting")` below the spinner — escape hatch for stuck connection attempts
+
+---
+
 ## AI Codex Index
 
 - `.ai-codex/` directory added to the repo root with five pre-built index files:
