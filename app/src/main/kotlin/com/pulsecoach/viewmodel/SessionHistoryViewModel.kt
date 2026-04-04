@@ -12,6 +12,7 @@ import com.pulsecoach.model.SessionType
 import com.pulsecoach.repository.SessionRepository
 import com.pulsecoach.repository.UserProfileRepository
 import com.pulsecoach.util.CsvExporter
+import com.pulsecoach.util.ProjectionCalibrator
 import com.pulsecoach.util.SyntheticSessionGenerator
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -26,6 +27,14 @@ sealed class SeedingState {
     object InProgress : SeedingState()
     data class Done(val count: Int) : SeedingState()
     data class Error(val message: String) : SeedingState()
+}
+
+/** Tracks the state of a realistic seed operation (sessions + calibration). */
+sealed class RealisticSeedingState {
+    object Idle : RealisticSeedingState()
+    object InProgress : RealisticSeedingState()
+    data class Done(val sessionCount: Int, val ratioCount: Int) : RealisticSeedingState()
+    data class Error(val message: String) : RealisticSeedingState()
 }
 
 /** Result of a CSV export attempt, shown to the user as a snackbar message. */
@@ -73,6 +82,12 @@ class SessionHistoryViewModel(application: Application) : AndroidViewModel(appli
     /** Tracks the state of a synthetic session seeding operation. */
     private val _seedingState = MutableStateFlow<SeedingState>(SeedingState.Idle)
     val seedingState: StateFlow<SeedingState> = _seedingState.asStateFlow()
+
+    /** Tracks the state of a realistic seed operation (sessions + calibration). */
+    private val _realisticSeedingState =
+        MutableStateFlow<RealisticSeedingState>(RealisticSeedingState.Idle)
+    val realisticSeedingState: StateFlow<RealisticSeedingState> =
+        _realisticSeedingState.asStateFlow()
 
     /**
      * Exports all HR samples for [sessionId] to a CSV file in the Downloads folder.
@@ -164,6 +179,32 @@ class SessionHistoryViewModel(application: Application) : AndroidViewModel(appli
     /** Called by the screen after it has displayed the seeding result snackbar. */
     fun clearSeedingState() {
         _seedingState.value = SeedingState.Idle
+    }
+
+    /** Seeds ~15 realistic synthetic sessions based on user's real workout params. */
+    fun seedRealisticSessions(targetHr: Int, noiseSigma: Double) {
+        viewModelScope.launch {
+            _realisticSeedingState.value = RealisticSeedingState.InProgress
+            val profile = UserProfileRepository(getApplication()).getProfile()
+            if (profile == null) {
+                _realisticSeedingState.value =
+                    RealisticSeedingState.Error("No user profile saved.")
+                return@launch
+            }
+            repository.seedRealisticSessions(targetHr, noiseSigma, profile)
+            _realisticSeedingState.value = RealisticSeedingState.Done(15, 0)
+        }
+    }
+
+    /** Seeds [n] calibration ratios centered on [baseRatio] with the given [spread]. */
+    fun seedCalibrationRatios(baseRatio: Float, spread: Float = 0.07f, n: Int = 8) {
+        ProjectionCalibrator.seedCalibrationRatios(getApplication(), baseRatio, spread, n)
+        _realisticSeedingState.value = RealisticSeedingState.Done(0, n)
+    }
+
+    /** Called by the screen after it has displayed the realistic seeding result snackbar. */
+    fun clearRealisticSeedingState() {
+        _realisticSeedingState.value = RealisticSeedingState.Idle
     }
 
     /** Adds or removes a session from the selection set. */

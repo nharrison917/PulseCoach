@@ -56,6 +56,7 @@ object SyntheticSessionGenerator {
         durationMin: Int,
         profile: UserProfile,
         startTimeMs: Long,
+        noiseSigma: Double = 4.0,   // sigma for Gaussian HR noise; 4.0 matches original behaviour
         random: Random = Random.Default
     ): Result {
         val totalSeconds = durationMin * 60
@@ -81,7 +82,7 @@ object SyntheticSessionGenerator {
                     val progress = (t - warmupSec).toDouble() / steadyDuration
                     val drift = 5.0 * progress
                     // Gaussian noise with sigma=4, clamped to +/-10 bpm
-                    val noise = (gaussianNoise(random) * 4.0).coerceIn(-10.0, 10.0)
+                    val noise = (gaussianNoise(random) * noiseSigma).coerceIn(-10.0, 10.0)
                     targetHr + drift + noise
                 }
                 else -> {

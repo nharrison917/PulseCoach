@@ -1,7 +1,11 @@
 package com.pulsecoach.util
 
 import android.content.Context
+import kotlin.math.PI
+import kotlin.math.cos
+import kotlin.math.ln
 import kotlin.math.sqrt
+import kotlin.random.Random
 
 /**
  * Tracks personal projection accuracy and applies a rolling bias correction factor.
@@ -140,6 +144,37 @@ object ProjectionCalibrator {
         // sumOf operates on Double to avoid float accumulation error
         val variance = ratios.sumOf { ((it - mean) * (it - mean)).toDouble() } / (ratios.size - 1)
         return sqrt(variance).toFloat()
+    }
+
+    /**
+     * Debug only: seeds [n] synthetic calibration ratios centered on [baseRatio].
+     *
+     * Ratios are drawn from N(baseRatio, spread²) via Box-Muller, clipped to
+     * [OUTLIER_MIN, OUTLIER_MAX], then their rolling mean is computed and written
+     * to SharedPreferences alongside the raw list and count.  Overwrites any
+     * existing calibration state.
+     */
+    fun seedCalibrationRatios(
+        context: Context,
+        baseRatio: Float,
+        spread: Float = 0.07f,
+        n: Int = 8
+    ) {
+        val ratios = mutableListOf<Float>()
+        repeat(n) {
+            val u1 = Random.nextDouble().coerceAtLeast(1e-10)
+            val u2 = Random.nextDouble()
+            val gaussian = sqrt(-2.0 * ln(u1)) * cos(2.0 * PI * u2)
+            val ratio = (baseRatio + spread * gaussian.toFloat()).coerceIn(OUTLIER_MIN, OUTLIER_MAX)
+            ratios.add(ratio)
+        }
+        val mean = ratios.sum() / ratios.size
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .edit()
+            .putString(KEY_RATIOS, ratios.joinToString(","))
+            .putInt(KEY_N, ratios.size)
+            .putFloat(KEY_FACTOR, mean)
+            .apply()
     }
 
     /**
