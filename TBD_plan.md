@@ -28,10 +28,10 @@ Two items were added in the previous session and will become unused once the ban
 | Branch | Features | Status |
 |---|---|---|
 | `feature/live-session-improvements` | Calorie graph Option C, First projection callout, Eval caption fix, Stop connecting button | **MERGED** |
-| `feature/profile-settings-improvements` | Weight unit toggle (lbs/kg), Lock fields during recording | **NEXT** |
-| `feature/expandable-history-cards` | Expandable history cards | Pending |
+| `feature/profile-settings-improvements` | Weight unit toggle (lbs/kg), Lock fields during recording | **MERGED** |
+| `feature/expandable-history-cards` | Expandable history cards | **NEXT** |
 
-Execute in order: Branch 2 → Branch 3.
+Execute: Branch 3.
 Zone 3 contrast and selectable HR window remain parked — no new branches.
 
 ---

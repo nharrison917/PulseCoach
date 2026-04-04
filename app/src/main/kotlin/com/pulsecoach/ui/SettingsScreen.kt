@@ -74,6 +74,7 @@ fun SettingsScreen(
     viewModel: SettingsViewModel = viewModel()
 ) {
     val saved by viewModel.savedZoneConfig.collectAsStateWithLifecycle()
+    val isRecording by viewModel.isRecording.collectAsStateWithLifecycle()
 
     // Draft state — local copies the user edits before committing to Room.
     // We use Int (not Float) because bpm is discrete.
@@ -116,6 +117,16 @@ fun SettingsScreen(
         ) {
             Spacer(Modifier.height(8.dp))
 
+            // Lock notice — shown when a live session is active
+            if (isRecording) {
+                Text(
+                    "A session is in progress — settings locked",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.error
+                )
+                Spacer(Modifier.height(4.dp))
+            }
+
             Text(
                 "Adjust the upper bpm boundary for each zone. Zone 5 is everything above Zone 4.",
                 style = MaterialTheme.typography.bodyMedium,
@@ -146,7 +157,7 @@ fun SettingsScreen(
                             useKarvonen = false
                         }
                     },
-                    enabled = karvonenAvailable
+                    enabled = karvonenAvailable && !isRecording
                 )
                 Column(modifier = Modifier.weight(1f).padding(start = 4.dp)) {
                     Text("Use Karvonen Formula", style = MaterialTheme.typography.bodyMedium)
@@ -178,6 +189,7 @@ fun SettingsScreen(
                 value = draft1,
                 valueRange = BPM_MIN..(draft2 - ZONE_GAP),
                 formulaControlled = useKarvonen,
+                enabled = !isRecording,
                 onValueChange = { useKarvonen = false; draft1 = it }
             )
 
@@ -188,6 +200,7 @@ fun SettingsScreen(
                 value = draft2,
                 valueRange = (draft1 + ZONE_GAP)..(draft3 - ZONE_GAP),
                 formulaControlled = useKarvonen,
+                enabled = !isRecording,
                 onValueChange = { useKarvonen = false; draft2 = it }
             )
 
@@ -198,6 +211,7 @@ fun SettingsScreen(
                 value = draft3,
                 valueRange = (draft2 + ZONE_GAP)..(draft4 - ZONE_GAP),
                 formulaControlled = useKarvonen,
+                enabled = !isRecording,
                 onValueChange = { useKarvonen = false; draft3 = it }
             )
 
@@ -208,6 +222,7 @@ fun SettingsScreen(
                 value = draft4,
                 valueRange = (draft3 + ZONE_GAP)..(BPM_MAX - ZONE_GAP),
                 formulaControlled = useKarvonen,
+                enabled = !isRecording,
                 onValueChange = { useKarvonen = false; draft4 = it }
             )
 
@@ -243,6 +258,7 @@ fun SettingsScreen(
             ) {
                 OutlinedButton(
                     onClick = { viewModel.resetToDefaults() },
+                    enabled = !isRecording,
                     modifier = Modifier.weight(1f)
                 ) {
                     Text("Reset Defaults")
@@ -252,6 +268,7 @@ fun SettingsScreen(
                         viewModel.saveZoneConfig(ZoneConfig(draft1, draft2, draft3, draft4))
                         onNavigateBack()
                     },
+                    enabled = !isRecording,
                     modifier = Modifier.weight(1f)
                 ) {
                     Text("Save")
@@ -305,7 +322,8 @@ private fun ZoneSlider(
     value: Int,
     valueRange: IntRange,
     onValueChange: (Int) -> Unit,
-    formulaControlled: Boolean = false
+    formulaControlled: Boolean = false,
+    enabled: Boolean = true
 ) {
     // When the formula is in control, dim the slider thumb and track to signal read-only intent.
     // The slider stays interactive — dragging it will clear formulaControlled via onValueChange.
@@ -354,6 +372,7 @@ private fun ZoneSlider(
             valueRange = valueRange.first.toFloat()..valueRange.last.toFloat(),
             steps = valueRange.last - valueRange.first - 1,
             colors = sliderColors,
+            enabled = enabled,
             modifier = Modifier.fillMaxWidth()
         )
     }
