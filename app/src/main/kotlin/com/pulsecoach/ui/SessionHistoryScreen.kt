@@ -21,8 +21,11 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.draw.clip
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.ArrowDropDown
+import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Color
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -382,9 +385,9 @@ private fun EmptyHistoryContent(modifier: Modifier = Modifier) {
 }
 
 /**
- * Card showing session summary. Long-pressing enters selection mode;
- * tapping while in selection mode toggles the card's selected state.
- * The Export button is hidden during selection mode to avoid accidental taps.
+ * Card showing session summary. Tapping expands/collapses the detail section.
+ * Long-pressing enters multi-select mode; tapping while in selection mode toggles selection.
+ * The Export button and detail stats are hidden until expanded.
  */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -396,12 +399,16 @@ private fun SessionCard(
     onExportClick: () -> Unit,
     onTypeEditClick: () -> Unit = {}
 ) {
+    // Expand/collapse is purely local UI state — no ViewModel involvement needed.
+    var expanded by remember { mutableStateOf(false) }
+
     // Selected cards get a primary-color border so the selection is immediately obvious.
     Card(
         modifier = Modifier
             .fillMaxWidth()
             .combinedClickable(
-                onClick = { if (isInSelectionMode) onToggleSelect() },
+                // In selection mode: tap toggles selection. Otherwise: tap expands/collapses.
+                onClick = { if (isInSelectionMode) onToggleSelect() else expanded = !expanded },
                 onLongClick = onToggleSelect
             ),
         elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
@@ -409,6 +416,7 @@ private fun SessionCard(
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
 
+            // ── Row 1: Date / time, SYN chip | Incomplete label + expand icon ──
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -442,17 +450,34 @@ private fun SessionCard(
                         }
                     }
                 }
-                // Sessions without an end time were interrupted (e.g. app crash).
-                if (session.endTimeMs == null) {
-                    Text(
-                        text = "Incomplete",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.error
-                    )
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    // Sessions without an end time were interrupted (e.g. app crash).
+                    if (session.endTimeMs == null) {
+                        Text(
+                            text = "Incomplete",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.error
+                        )
+                    }
+                    // Expand/collapse chevron — hidden in selection mode to avoid visual noise.
+                    if (!isInSelectionMode) {
+                        Icon(
+                            imageVector = Icons.Default.ArrowDropDown,
+                            contentDescription = if (expanded) "Collapse" else "Expand",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            // Rotate 180 degrees when expanded so the chevron points up
+                            modifier = Modifier.rotate(if (expanded) 180f else 0f)
+                        )
+                    }
                 }
             }
 
             Spacer(Modifier.height(4.dp))
+
+            // ── Row 2: Duration | Session type chip ──────────────────────────
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -491,73 +516,101 @@ private fun SessionCard(
                 }
             }
 
-            Spacer(Modifier.height(8.dp))
-            HorizontalDivider()
-            Spacer(Modifier.height(8.dp))
+            Spacer(Modifier.height(6.dp))
 
-            // Zone split bar — only shown when the session has zone data (skips pre-v4 sessions)
-            val zoneTotals = listOf(
-                session.zone1Seconds, session.zone2Seconds, session.zone3Seconds,
-                session.zone4Seconds, session.zone5Seconds
+            // ── Row 3: Total calories (always visible in collapsed state) ────
+            Text(
+                text = "%.1f cal".format(session.totalCalories),
+                style = MaterialTheme.typography.bodyLarge,
+                fontWeight = FontWeight.Medium
             )
-            if (zoneTotals.any { it > 0 }) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(6.dp)
-                        .clip(RoundedCornerShape(3.dp))
-                ) {
-                    zoneTotals.forEachIndexed { index, seconds ->
-                        val zone = index + 1
-                        // +1 keeps weight positive for zones with zero time (Compose requires weight > 0)
-                        Box(
-                            modifier = Modifier
-                                .weight((seconds + 1).toFloat())
-                                .fillMaxHeight()
-                                .background(ZoneCalculator.colorForZone(zone).copy(
-                                    alpha = if (seconds > 0) 1f else 0.15f
-                                ))
-                        )
-                    }
-                }
-                Spacer(Modifier.height(8.dp))
-            }
 
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
+            // ── Expanded detail section ───────────────────────────────────────
+            // AnimatedVisibility gives a smooth expand/collapse instead of a hard cut.
+            AnimatedVisibility(visible = expanded) {
                 Column {
-                    Text(
-                        text = "%.1f cal".format(session.totalCalories),
-                        style = MaterialTheme.typography.bodyLarge,
-                        fontWeight = FontWeight.Medium
-                    )
-                    val durationMinutes = session.endTimeMs?.let {
-                        (it - session.startTimeMs) / 60_000f
-                    }
-                    val avgCalPerMin = if (durationMinutes != null && durationMinutes > 0f) {
-                        session.totalCalories / durationMinutes
-                    } else null
+                    Spacer(Modifier.height(8.dp))
+                    HorizontalDivider()
+                    Spacer(Modifier.height(8.dp))
 
+                    // Zone split bar — only when session has zone data (pre-v4 sessions lack it)
+                    val zoneTotals = listOf(
+                        session.zone1Seconds, session.zone2Seconds, session.zone3Seconds,
+                        session.zone4Seconds, session.zone5Seconds
+                    )
+                    if (zoneTotals.any { it > 0 }) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(6.dp)
+                                .clip(RoundedCornerShape(3.dp))
+                        ) {
+                            zoneTotals.forEachIndexed { index, seconds ->
+                                val zone = index + 1
+                                // +1 keeps weight positive for zones with zero time (Compose requires weight > 0)
+                                Box(
+                                    modifier = Modifier
+                                        .weight((seconds + 1).toFloat())
+                                        .fillMaxHeight()
+                                        .background(ZoneCalculator.colorForZone(zone).copy(
+                                            alpha = if (seconds > 0) 1f else 0.15f
+                                        ))
+                                )
+                            }
+                        }
+                        Spacer(Modifier.height(8.dp))
+                    }
+
+                    // BPM stats
                     Text(
                         text = buildString {
                             append("avg ${session.avgBpm.toInt()} bpm")
                             if (session.maxBpm > 0) append("  •  max ${session.maxBpm} bpm")
-                            if (avgCalPerMin != null) append("  •  avg ${"%.1f".format(avgCalPerMin)} cal/min")
                         },
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
-                }
-                // Export is only available for completed sessions and only outside selection mode.
-                if (session.endTimeMs != null && !isInSelectionMode) {
-                    OutlinedButton(
-                        onClick = onExportClick,
-                        modifier = Modifier.height(36.dp)
-                    ) {
-                        Text("Export CSV", style = MaterialTheme.typography.labelMedium)
+
+                    // Avg cal/min — only computable for completed sessions
+                    val durationMinutes = session.endTimeMs?.let {
+                        (it - session.startTimeMs) / 60_000f
+                    }
+                    if (durationMinutes != null && durationMinutes > 0f) {
+                        val avgCalPerMin = session.totalCalories / durationMinutes
+                        Text(
+                            text = "avg ${"%.1f".format(avgCalPerMin)} cal/min",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+
+                    // Session notes — shown only when non-empty and not a synthetic marker
+                    val displayNotes = session.notes.takeIf {
+                        it.isNotEmpty() && it != "synthetic" && it != "synthetic-r"
+                    }
+                    if (displayNotes != null) {
+                        Spacer(Modifier.height(4.dp))
+                        Text(
+                            text = displayNotes,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+
+                    // Export button — only for completed sessions and outside selection mode
+                    if (session.endTimeMs != null && !isInSelectionMode) {
+                        Spacer(Modifier.height(8.dp))
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.End
+                        ) {
+                            OutlinedButton(
+                                onClick = onExportClick,
+                                modifier = Modifier.height(36.dp)
+                            ) {
+                                Text("Export CSV", style = MaterialTheme.typography.labelMedium)
+                            }
+                        }
                     }
                 }
             }
