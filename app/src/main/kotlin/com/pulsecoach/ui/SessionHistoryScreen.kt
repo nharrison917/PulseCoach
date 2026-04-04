@@ -61,7 +61,11 @@ import com.pulsecoach.BuildConfig
 import com.pulsecoach.model.Session
 import com.pulsecoach.model.SessionType
 import com.pulsecoach.util.ZoneCalculator
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.ui.text.input.KeyboardType
 import com.pulsecoach.viewmodel.ExportResult
+import com.pulsecoach.viewmodel.RealisticSeedingState
 import com.pulsecoach.viewmodel.SeedingState
 import com.pulsecoach.viewmodel.SessionHistoryViewModel
 import java.text.SimpleDateFormat
@@ -82,10 +86,16 @@ fun SessionHistoryScreen(
     onNavigateToEvaluation: () -> Unit = {},
     viewModel: SessionHistoryViewModel = viewModel()
 ) {
-    val sessions      by viewModel.sessions.collectAsStateWithLifecycle()
-    val exportResult  by viewModel.exportResult.collectAsStateWithLifecycle()
-    val selectedIds   by viewModel.selectedIds.collectAsStateWithLifecycle()
-    val seedingState  by viewModel.seedingState.collectAsStateWithLifecycle()
+    val sessions              by viewModel.sessions.collectAsStateWithLifecycle()
+    val exportResult          by viewModel.exportResult.collectAsStateWithLifecycle()
+    val selectedIds           by viewModel.selectedIds.collectAsStateWithLifecycle()
+    val seedingState          by viewModel.seedingState.collectAsStateWithLifecycle()
+    val realisticSeedingState by viewModel.realisticSeedingState.collectAsStateWithLifecycle()
+
+    // Input state for the realistic seeder panel
+    var targetHrText    by remember { mutableStateOf("171") }
+    var noiseSigmaText  by remember { mutableStateOf("4.0") }
+    var baseRatioText   by remember { mutableStateOf("0.99") }
 
     // Derived from selectedIds — drives which top bar and card interactions are shown.
     val isInSelectionMode = selectedIds.isNotEmpty()
@@ -120,6 +130,20 @@ fun SessionHistoryScreen(
         }
         snackbarHostState.showSnackbar(message)
         viewModel.clearSeedingState()
+    }
+
+    LaunchedEffect(realisticSeedingState) {
+        val message = when (val state = realisticSeedingState) {
+            is RealisticSeedingState.Done -> when {
+                state.sessionCount > 0 -> "${state.sessionCount} realistic sessions seeded"
+                state.ratioCount  > 0  -> "${state.ratioCount} calibration ratios seeded"
+                else -> return@LaunchedEffect
+            }
+            is RealisticSeedingState.Error -> "Seed failed: ${state.message}"
+            else -> return@LaunchedEffect
+        }
+        snackbarHostState.showSnackbar(message)
+        viewModel.clearRealisticSeedingState()
     }
 
     // Confirmation dialog — shown before any data is permanently deleted.
@@ -258,6 +282,71 @@ fun SessionHistoryScreen(
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 item { Spacer(Modifier.height(4.dp)) }
+                if (BuildConfig.DEBUG) {
+                    item {
+                        val seeding = realisticSeedingState is RealisticSeedingState.InProgress
+                        Card(
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = CardDefaults.cardColors(
+                                containerColor = MaterialTheme.colorScheme.surfaceVariant
+                            )
+                        ) {
+                            Column(modifier = Modifier.padding(12.dp)) {
+                                Text(
+                                    "Seed from Real Data",
+                                    style = MaterialTheme.typography.labelLarge,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Spacer(Modifier.height(8.dp))
+                                OutlinedTextField(
+                                    value = targetHrText,
+                                    onValueChange = { targetHrText = it },
+                                    label = { Text("Steady-state HR (bpm)") },
+                                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                                    singleLine = true,
+                                    modifier = Modifier.fillMaxWidth()
+                                )
+                                Spacer(Modifier.height(4.dp))
+                                OutlinedTextField(
+                                    value = noiseSigmaText,
+                                    onValueChange = { noiseSigmaText = it },
+                                    label = { Text("HR noise sigma") },
+                                    placeholder = { Text("4.0") },
+                                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                                    singleLine = true,
+                                    modifier = Modifier.fillMaxWidth()
+                                )
+                                Spacer(Modifier.height(4.dp))
+                                OutlinedTextField(
+                                    value = baseRatioText,
+                                    onValueChange = { baseRatioText = it },
+                                    label = { Text("Base calibration ratio") },
+                                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                                    singleLine = true,
+                                    modifier = Modifier.fillMaxWidth()
+                                )
+                                Spacer(Modifier.height(8.dp))
+                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    OutlinedButton(
+                                        onClick = {
+                                            val hr = targetHrText.toIntOrNull() ?: return@OutlinedButton
+                                            val sigma = noiseSigmaText.toDoubleOrNull() ?: 4.0
+                                            viewModel.seedRealisticSessions(hr, sigma)
+                                        },
+                                        enabled = !seeding
+                                    ) { Text(if (seeding) "Seeding..." else "Seed 15 Sessions") }
+                                    OutlinedButton(
+                                        onClick = {
+                                            val ratio = baseRatioText.toFloatOrNull() ?: return@OutlinedButton
+                                            viewModel.seedCalibrationRatios(ratio)
+                                        },
+                                        enabled = !seeding
+                                    ) { Text("Seed Calibration") }
+                                }
+                            }
+                        }
+                    }
+                }
                 items(sessions, key = { it.id }) { session ->
                     SessionCard(
                         session = session,

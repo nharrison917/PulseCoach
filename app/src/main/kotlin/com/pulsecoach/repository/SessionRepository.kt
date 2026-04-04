@@ -170,6 +170,56 @@ class SessionRepository(
         }
     }
 
+    /**
+     * Seeds [count] Push/30-min synthetic sessions parameterized from real workout data.
+     * Duration cycles through {28,29,30,31,32} min so all fall in the 30-min bucket.
+     * Sessions are spaced ~2 days apart ending 4 days before now, keeping real sessions
+     * at the top of history. Tagged notes = "synthetic-r". Call only from debug builds.
+     */
+    suspend fun seedRealisticSessions(
+        targetHr: Int,
+        noiseSigma: Double,
+        profile: UserProfile,
+        count: Int = 15
+    ) {
+        val durationCycle = listOf(28, 29, 30, 31, 32)
+        val endAnchor = System.currentTimeMillis() - 4 * 24 * 60 * 60 * 1000L
+        val baseTime = endAnchor - count * 2 * 24 * 60 * 60 * 1000L
+
+        repeat(count) { index ->
+            val durationMin = durationCycle[index % durationCycle.size]
+            val startTimeMs = baseTime + index * 2 * 24 * 60 * 60 * 1000L
+            val generated = SyntheticSessionGenerator.generate(
+                targetHr, durationMin, profile, startTimeMs, noiseSigma
+            )
+
+            val maxBpm = generated.samples.maxOf { it.bpm }
+            // groupingBy zone then count gives seconds-per-zone (1 sample = 1 second)
+            val zoneSplits = generated.samples.groupingBy { it.zone }.eachCount()
+
+            val sessionId = sessionDao.insert(
+                SessionEntity(
+                    startTimeMs = startTimeMs,
+                    endTimeMs = startTimeMs + generated.durationMs,
+                    targetDurationMs = durationMin * 60_000L,
+                    totalCalories = generated.totalCalories,
+                    avgBpm = generated.avgBpm,
+                    notes = "synthetic-r",
+                    sessionType = SessionType.PUSH.name,
+                    maxBpm = maxBpm,
+                    zone1Seconds = zoneSplits.getOrDefault(1, 0),
+                    zone2Seconds = zoneSplits.getOrDefault(2, 0),
+                    zone3Seconds = zoneSplits.getOrDefault(3, 0),
+                    zone4Seconds = zoneSplits.getOrDefault(4, 0),
+                    zone5Seconds = zoneSplits.getOrDefault(5, 0)
+                )
+            )
+            generated.samples.forEach { sample ->
+                hrSampleDao.insert(sample.copy(sessionId = sessionId).toEntity())
+            }
+        }
+    }
+
     // --- Private mapping helpers ---
 
     // Extension functions on the entity class, kept private to this file.
