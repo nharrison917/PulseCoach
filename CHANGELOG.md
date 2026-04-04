@@ -14,6 +14,28 @@ All notable changes to PulseCoach are documented here, organized by development 
   each new session can load the index instead of grepping the codebase from scratch
 - Intent: reduce cold-start token cost and keep AI assistance focused on logic rather
   than rediscovering structure
+
+---
+
+## Realistic-Data Seeder
+
+- Added a debug-only "Seed from Real Data" panel to the Session History screen
+- User supplies steady-state HR and a base calibration ratio from real sessions; seeder generates ~15 Push/30-min synthetic sessions with HR curves parameterized from those values
+- A separate "Seed Calibration" button seeds 8 calibration ratios centered on the supplied base ratio (Box-Muller, spread = 0.07), clearing all three projection activation thresholds in one tap
+- Thresholds cleared: historical blend (≥ 10 sessions), confidence band (≥ 5 ratios), bias correction (≥ 3 ratios)
+- Sessions tagged `"synthetic-r"` to distinguish from generic synthetics; timestamps spaced ~2 days apart ending 4 days before now so real sessions remain most recent
+- `SyntheticSessionGenerator.generate()` gains a `noiseSigma` parameter (default 4.0 — backwards compatible)
+- New `seedRealisticSessions()` in `SessionRepository`, `seedCalibrationRatios()` in `ProjectionCalibrator`, `RealisticSeedingState` sealed class + two VM functions in `SessionHistoryViewModel`
+
+---
+
+## Confidence Band Visibility
+
+- Band lines in `LiveCalorieChart` changed from primary-color at 20% opacity to white at 45% opacity
+- Previous color was near-invisible on dark and synthwave themes; white at mid-opacity is readable across all three themes (Default, Dark, Synthwave)
+
+---
+
 ## Selectable App Themes
 
 - Added `AppTheme` enum with three options: **Default** (light, blue primary), **Dark** (deep neutral backgrounds, soft blue primary), **Synthwave** (indigo-black, neon magenta + electric cyan — Outrun aesthetic)
@@ -21,6 +43,9 @@ All notable changes to PulseCoach are documented here, organized by development 
 - `MainActivity` holds theme state as `mutableStateOf`; wraps the entire composition in `MaterialTheme(colorScheme = selectedTheme.colorScheme)` — theme changes take effect instantly without an Activity restart
 - Status bar icon color is reactive: Default → dark icons; Dark/Synthwave → light icons via `SideEffect` + `enableEdgeToEdge`
 - Theme selector (Material3 `ExposedDropdownMenuBox`) added to the bottom of the Settings screen under a new **Appearance** section
+
+---
+
 ## Bug Fix — Spurious 0 BPM Readings Corrupting HR Chart Y-Axis
 
 - Polar H10 occasionally emits a 0 (or near-zero) BPM sample during connection; these values collapsed the dynamic y-axis range to include 0, making the chart unreadable
@@ -92,7 +117,7 @@ All notable changes to PulseCoach are documented here, organized by development 
 - `LiveCalorieChart` expanded to 4-series Vico layout:
   - Series 0: actual (solid primary)
   - Series 1: projected (45% opacity)
-  - Series 2/3: upper/lower confidence band (20% opacity)
+  - Series 2/3: upper/lower confidence band (white, 45% opacity — updated for multi-theme visibility)
   - All 4 series always present in model; 2-point dummies used when inactive
   - Band formula: `upper(t) = projection(t) × (1 + σ)`, `lower(t) = projection(t) × (1 − σ)`
   - Caption extended: shows `±N% historical range` when band is active
