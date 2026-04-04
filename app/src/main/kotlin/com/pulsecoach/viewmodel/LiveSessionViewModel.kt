@@ -175,6 +175,10 @@ class LiveSessionViewModel(application: Application) : AndroidViewModel(applicat
     private val _pinnedProjectedCalories = MutableStateFlow<Float?>(null)
     val pinnedProjectedCalories: StateFlow<Float?> = _pinnedProjectedCalories.asStateFlow()
 
+    /** The first projection at the target endpoint, captured once when projection first fires (min 10). Null until then. */
+    private val _firstProjectedCalories = MutableStateFlow<Float?>(null)
+    val firstProjectedCalories: StateFlow<Float?> = _firstProjectedCalories.asStateFlow()
+
     /**
      * Number of sessions that qualify for historical averaging (completed, avgBpm > 100,
      * duration > 10 min). Exposed to the UI so the chart label can reflect the active mode.
@@ -368,6 +372,13 @@ class LiveSessionViewModel(application: Application) : AndroidViewModel(applicat
         }
     }
 
+    /** Cancels an in-progress connection attempt by disconnecting from the device being connected to. */
+    fun stopConnecting() {
+        val deviceId = (connectionState.value as? BleConnectionState.Connecting)?.deviceId
+            ?: return
+        bleManager.disconnectFromDevice(deviceId)
+    }
+
     /** Disconnects from the current device and suppresses any pending reconnect attempt. */
     fun disconnect(deviceId: String) {
         // Clear lastConnectedDeviceId BEFORE disconnecting so that the Disconnected
@@ -419,6 +430,7 @@ class LiveSessionViewModel(application: Application) : AndroidViewModel(applicat
             _projectedCalorieCurve.value = null
             _caloriesAtTarget.value = null
             _pinnedProjectedCalories.value = null
+            _firstProjectedCalories.value = null
             _isRecording.value = true
         }
     }
@@ -476,6 +488,7 @@ class LiveSessionViewModel(application: Application) : AndroidViewModel(applicat
             _projectionBand.value = null
             _caloriesAtTarget.value = null
             _pinnedProjectedCalories.value = null
+            _firstProjectedCalories.value = null
         }
     }
 
@@ -573,6 +586,12 @@ class LiveSessionViewModel(application: Application) : AndroidViewModel(applicat
                                 val calibrationFactor = ProjectionCalibrator.getCorrectionFactor(getApplication())
                                 _projectedCalorieCurve.value = rawProjection?.let {
                                     ProjectionCalibrator.applyTo(it, calibrationFactor, anchorCal)
+                                }
+                                // Capture the very first projection endpoint once, for retrospective display.
+                                if (_firstProjectedCalories.value == null) {
+                                    _firstProjectedCalories.value = _projectedCalorieCurve.value?.let {
+                                        ProjectionCalibrator.interpolateProjection(it, _targetDurationMinutes.value.toFloat())
+                                    }
                                 }
                                 // σ of past ratios — null until ≥5 sessions; drives the
                                 // confidence band on the chart when non-null.

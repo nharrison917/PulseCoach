@@ -10,7 +10,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
@@ -32,23 +31,21 @@ import com.patrykandpatrick.vico.core.cartesian.data.lineSeries
 import com.patrykandpatrick.vico.core.cartesian.layer.LineCartesianLayer
 
 /**
- * Cumulative calorie chart with an optional projected extension and confidence band.
+ * Cumulative calorie chart with an optional projected extension and endpoint annotation.
  *
- * Four visual series (all always present in the model to keep the Vico layer count stable):
+ * Two visual series:
  *   0 — Actual (solid primary color): calories accumulated this session.
  *   1 — Projected (45% opacity): polynomial/blend extrapolation to the target duration.
  *        Only meaningful once [projectedPoints] is non-null (after 10 min of data).
- *   2 — Upper confidence band (20% opacity): projected × (1 + σ).
- *   3 — Lower confidence band (20% opacity): projected × (1 − σ).
- *        Series 2 and 3 are dummies when [projectionBand] is null (< 5 past sessions).
  *
- * When there is no real data for a series, a flat 2-point segment at the last actual
- * position is used as a dummy — Vico needs ≥ 2 points to render without warnings.
+ * When [projectionBand] is active, the confidence range is shown as a caption annotation
+ * at the target endpoint rather than as band lines on the chart.
  *
- * @param actualPoints    (elapsedMinutes, cumulativeCalories) — one per minute.
- * @param projectedPoints Projected curve from [PolynomialProjector.project], or null.
- * @param isBlended       True when the projection is a poly+historical blend.
- * @param projectionBand  Fractional σ of past ratios (e.g. 0.12 = ±12%). Null until ≥5 sessions.
+ * @param actualPoints          (elapsedMinutes, cumulativeCalories) — one per minute.
+ * @param projectedPoints       Projected curve from [PolynomialProjector.project], or null.
+ * @param isBlended             True when the projection is a poly+historical blend.
+ * @param projectionBand        Fractional σ of past ratios (e.g. 0.12 = ±12%). Null until ≥5 sessions.
+ * @param projectedFinalCalories Projected calorie total at the target duration. Used for the endpoint annotation.
  */
 @Composable
 fun LiveCalorieChart(
@@ -59,6 +56,7 @@ fun LiveCalorieChart(
     projectedFinalCalories: Float? = null,
     isOverTarget: Boolean = false,
     caloriesAtTarget: Float? = null,
+    firstProjectedCalories: Float? = null,
     targetDurationMinutes: Int = 0,
     modifier: Modifier = Modifier
 ) {
@@ -78,19 +76,15 @@ fun LiveCalorieChart(
     } else {
         primaryColor.copy(alpha = 0.45f)
     }
-    // Band lines: white at mid opacity — readable across light, dark, and synthwave themes
-    val bandColor      = Color.White.copy(alpha = 0.45f)
 
     val onSurface  = MaterialTheme.colorScheme.onSurface.toArgb()
     val axisLabel  = remember(onSurface) { TextComponent(color = onSurface) }
 
     val actualLine    = LineCartesianLayer.rememberLine(fill = LineCartesianLayer.LineFill.single(fill(primaryColor)))
     val projectedLine = LineCartesianLayer.rememberLine(fill = LineCartesianLayer.LineFill.single(fill(projectedColor)))
-    val upperBandLine = LineCartesianLayer.rememberLine(fill = LineCartesianLayer.LineFill.single(fill(bandColor)))
-    val lowerBandLine = LineCartesianLayer.rememberLine(fill = LineCartesianLayer.LineFill.single(fill(bandColor)))
 
     // Rebuild the model whenever any input data changes
-    LaunchedEffect(actualPoints, projectedPoints, projectionBand) {
+    LaunchedEffect(actualPoints, projectedPoints) {
         if (actualPoints.size < 2) return@LaunchedEffect
 
         modelProducer.runTransaction {
@@ -101,27 +95,15 @@ fun LiveCalorieChart(
                     y = actualPoints.map { it.second }
                 )
 
-                // Dummy used when a series has no real data: a flat 2-point segment
-                // at the last actual position — invisible but satisfies Vico's ≥2 rule.
-                val dummyX = listOf(actualPoints.last().first, actualPoints.last().first + 1f)
-                val dummyY = listOf(actualPoints.last().second, actualPoints.last().second)
-
-                // Series 1 — projected (or dummy)
+                // Series 1 — projected (or a flat dummy when not yet available)
+                // Dummy: 2-point flat segment at the last actual position — invisible
+                // but required so Vico always sees the same number of series.
                 val proj = projectedPoints?.takeIf { it.size >= 2 }
                 if (proj != null) {
                     series(x = proj.map { it.first }, y = proj.map { it.second })
                 } else {
-                    series(x = dummyX, y = dummyY)
-                }
-
-                // Series 2 & 3 — upper/lower confidence band (or dummies)
-                if (proj != null && projectionBand != null) {
-                    val upperPts = proj.map { (t, cal) -> t to cal + projectionBand * cal }
-                    val lowerPts = proj.map { (t, cal) -> t to (cal - projectionBand * cal).coerceAtLeast(0f) }
-                    series(x = upperPts.map { it.first }, y = upperPts.map { it.second })
-                    series(x = lowerPts.map { it.first }, y = lowerPts.map { it.second })
-                } else {
-                    series(x = dummyX, y = dummyY)
+                    val dummyX = listOf(actualPoints.last().first, actualPoints.last().first + 1f)
+                    val dummyY = listOf(actualPoints.last().second, actualPoints.last().second)
                     series(x = dummyX, y = dummyY)
                 }
             }
@@ -134,9 +116,7 @@ fun LiveCalorieChart(
                 rememberLineCartesianLayer(
                     lineProvider = LineCartesianLayer.LineProvider.series(
                         actualLine,
-                        projectedLine,
-                        upperBandLine,
-                        lowerBandLine
+                        projectedLine
                     ),
                     rangeProvider = CartesianLayerRangeProvider.fixed(minY = 0.0)
                 ),
@@ -166,16 +146,18 @@ fun LiveCalorieChart(
                 else "Session over target"
             }
             projectedPoints == null -> "Projection starts after 10 min"
-            projectionBand != null -> {
+            projectionBand != null && projectedFinalCalories != null -> {
+                // Show the calorie range at the target endpoint instead of band lines.
                 val startMinute = actualPoints.last().first.toInt()
                 val mode = if (isBlended) "Historical blend" else "Polynomial projection"
-                val pct = (projectionBand * 100).toInt()
-                "$mode from min $startMinute  \u2022  \u00b1${pct}% historical range$projectedLabel"
+                val upperCal = (projectedFinalCalories * (1 + projectionBand)).toInt()
+                val lowerCal = (projectedFinalCalories * (1 - projectionBand)).toInt()
+                "$mode  \u2022  ${startMinute}-min session  \u2022  ~${lowerCal}\u2013${upperCal} cal at ${targetDurationMinutes}m"
             }
             else -> {
                 val startMinute = actualPoints.last().first.toInt()
                 val mode = if (isBlended) "Historical blend" else "Polynomial projection"
-                "$mode from min $startMinute$projectedLabel"
+                "$mode  \u2022  ${startMinute}-min session$projectedLabel"
             }
         }
         Text(
@@ -188,6 +170,15 @@ fun LiveCalorieChart(
         if (caloriesAtTarget != null) {
             Text(
                 text = "Actual at $targetDurationMinutes min: ${caloriesAtTarget.toInt()} cal",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
+            )
+        }
+        // Third line: first projection from min 10, shown after session ends for retrospective comparison.
+        if (caloriesAtTarget != null && firstProjectedCalories != null) {
+            Text(
+                text = "Projected at min 10: ~${firstProjectedCalories.toInt()} cal",
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)

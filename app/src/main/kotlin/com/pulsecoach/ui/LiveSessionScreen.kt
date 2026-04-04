@@ -125,6 +125,7 @@ fun LiveSessionScreen(
     val zoneSeconds              by viewModel.zoneSeconds.collectAsStateWithLifecycle()
     val caloriesAtTarget         by viewModel.caloriesAtTarget.collectAsStateWithLifecycle()
     val pinnedProjectedCalories  by viewModel.pinnedProjectedCalories.collectAsStateWithLifecycle()
+    val firstProjectedCalories   by viewModel.firstProjectedCalories.collectAsStateWithLifecycle()
 
     Scaffold(
         topBar = {
@@ -165,7 +166,10 @@ fun LiveSessionScreen(
 
                     is BleConnectionState.Connecting ->
                         if (isReconnecting) ReconnectingContent(isRecording = isRecording)
-                        else ConnectingContent(deviceId = state.deviceId)
+                        else ConnectingContent(
+                            deviceId = state.deviceId,
+                            onStopConnecting = { viewModel.stopConnecting() }
+                        )
 
                     is BleConnectionState.Connected ->
                         ConnectedContent(
@@ -188,6 +192,7 @@ fun LiveSessionScreen(
                             zoneSeconds = zoneSeconds,
                             caloriesAtTarget = caloriesAtTarget,
                             pinnedProjectedCalories = pinnedProjectedCalories,
+                            firstProjectedCalories = firstProjectedCalories,
                             onTargetDurationChange = viewModel::setTargetDuration,
                             onSessionTypeChange = viewModel::setSessionType,
                             onStartRecording = viewModel::startRecording,
@@ -323,7 +328,7 @@ private fun DeviceCard(device: FoundDevice, onClick: () -> Unit) {
 }
 
 @Composable
-private fun ConnectingContent(deviceId: String) {
+private fun ConnectingContent(deviceId: String, onStopConnecting: () -> Unit) {
     Column(
         modifier = Modifier.fillMaxSize(),
         verticalArrangement = Arrangement.Center,
@@ -332,6 +337,10 @@ private fun ConnectingContent(deviceId: String) {
         CircularProgressIndicator()
         Spacer(Modifier.height(16.dp))
         Text("Connecting to $deviceId...", style = MaterialTheme.typography.bodyLarge)
+        Spacer(Modifier.height(8.dp))
+        TextButton(onClick = onStopConnecting) {
+            Text("Stop connecting")
+        }
     }
 }
 
@@ -381,6 +390,7 @@ private fun ConnectedContent(
     zoneSeconds: Map<Int, Int>,
     caloriesAtTarget: Float?,
     pinnedProjectedCalories: Float?,
+    firstProjectedCalories: Float?,
     onTargetDurationChange: (Int) -> Unit,
     onSessionTypeChange: (SessionType?) -> Unit,
     onStartRecording: () -> Unit,
@@ -457,6 +467,7 @@ private fun ConnectedContent(
                 projectedFinalCalories = displayProjectedCalories,
                 isOverTarget = isOverTarget,
                 caloriesAtTarget = caloriesAtTarget,
+                firstProjectedCalories = firstProjectedCalories,
                 targetDurationMinutes = targetDurationMinutes,
                 modifier = Modifier
                     .fillMaxWidth()
@@ -873,6 +884,7 @@ private fun PreviewConnectedIdle() {
             zoneSeconds = emptyMap(),
             caloriesAtTarget = null,
             pinnedProjectedCalories = null,
+            firstProjectedCalories = null,
             onTargetDurationChange = {},
             onSessionTypeChange = {},
             onStartRecording = {},
@@ -909,6 +921,7 @@ private fun PreviewConnectedRecording() {
             zoneSeconds = mapOf(1 to 120, 2 to 480, 3 to 600, 4 to 180, 5 to 6),
             caloriesAtTarget = null,
             pinnedProjectedCalories = null,
+            firstProjectedCalories = null,
             onTargetDurationChange = {},
             onSessionTypeChange = {},
             onStartRecording = {},
