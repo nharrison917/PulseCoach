@@ -16,17 +16,23 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExposedDropdownMenuBox
+import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.MenuAnchorType
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
+import com.pulsecoach.ui.theme.AppTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -63,6 +69,8 @@ private const val ZONE_GAP = 5 // minimum bpm separation between zone boundaries
 fun SettingsScreen(
     onNavigateBack: () -> Unit,
     onNavigateToProfile: () -> Unit,
+    currentTheme: AppTheme,
+    onThemeChange: (AppTheme) -> Unit,
     viewModel: SettingsViewModel = viewModel()
 ) {
     val saved by viewModel.savedZoneConfig.collectAsStateWithLifecycle()
@@ -268,6 +276,21 @@ fun SettingsScreen(
                 Text("Edit Profile (age, weight, sex, resting/max HR)")
             }
 
+            Spacer(Modifier.height(16.dp))
+            HorizontalDivider()
+            Spacer(Modifier.height(16.dp))
+
+            Text(
+                "Appearance",
+                style = MaterialTheme.typography.titleSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Spacer(Modifier.height(8.dp))
+            ThemeDropdown(
+                selectedTheme = currentTheme,
+                onThemeSelected = onThemeChange
+            )
+
             Spacer(Modifier.height(24.dp))
         }
     }
@@ -367,6 +390,53 @@ private fun ZonePreviewStrip(zoneConfig: ZoneConfig) {
                         color = ZoneCalculator.textColorForZone(index + 1)
                     )
                 }
+            }
+        }
+    }
+}
+
+/**
+ * Dropdown selector for the three app themes.
+ * Uses ExposedDropdownMenuBox so it inherits Material3 styling automatically.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun ThemeDropdown(
+    selectedTheme: AppTheme,
+    onThemeSelected: (AppTheme) -> Unit
+) {
+    var expanded by remember { mutableStateOf(false) }
+
+    ExposedDropdownMenuBox(
+        expanded = expanded,
+        onExpandedChange = { expanded = it },
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        OutlinedTextField(
+            value = selectedTheme.displayName,
+            onValueChange = {},
+            readOnly = true,
+            label = { Text("Theme") },
+            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
+            colors = ExposedDropdownMenuDefaults.outlinedTextFieldColors(),
+            // MenuAnchorType.PrimaryNotEditable = read-only field that anchors a dropdown
+            modifier = Modifier
+                .menuAnchor(MenuAnchorType.PrimaryNotEditable)
+                .fillMaxWidth()
+        )
+        ExposedDropdownMenu(
+            expanded = expanded,
+            onDismissRequest = { expanded = false }
+        ) {
+            AppTheme.entries.forEach { theme ->
+                DropdownMenuItem(
+                    text = { Text(theme.displayName) },
+                    onClick = {
+                        onThemeSelected(theme)
+                        expanded = false
+                    },
+                    contentPadding = ExposedDropdownMenuDefaults.ItemContentPadding
+                )
             }
         }
     }
