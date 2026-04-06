@@ -4,6 +4,16 @@ All notable changes to PulseCoach are documented here, organized by development 
 
 ---
 
+## Expandable Session History Cards
+
+- Session cards collapse to a summary row (date/time, duration, total calories, session type chip) and expand on tap to reveal full detail
+- Expanded section shows: zone time bar, avg BPM / max BPM, avg cal/min, session notes (if any), and Export CSV button
+- Expand/collapse is local composable state — no ViewModel involvement; `AnimatedVisibility` provides a smooth transition
+- Long-press to enter multi-select still works; in selection mode, tapping toggles selection rather than expanding
+- Zone bar and Export CSV button moved from always-visible to expanded-only, keeping the collapsed row uncluttered
+
+---
+
 ## Profile Settings Improvements
 
 ### Feature A — Weight unit toggle (lbs / kg)
