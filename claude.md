@@ -125,6 +125,15 @@ Key StateFlow grep targets (avoids full ViewModel reads):
 •	Historical blend state: _qualifyingSessionCount, historicalCurve
 •	Zone time splits: _zoneSeconds
 
+Calorie curve lifecycle (intentional design — do not "fix"):
+•	_actualCalorieCurve and all projection values are NOT cleared in stopRecording(). They stay frozen on screen so the user can review their session after stopping.
+•	They ARE cleared at the top of startRecording() when the next session begins.
+•	The LiveCalorieChart visibility guard is `actualCalorieCurve.size >= 2` (not gated on isRecording) — this is intentional.
+
+Theme-adaptive colors in Compose:
+•	Never use hardcoded Color values for text that must be readable across Default/Dark/Synthwave themes. Use MaterialTheme.colorScheme.onSurface (or onSurfaceVariant) so the theme controls the value.
+•	ZoneCalculator.textColorForZone() returns hardcoded dark/white — only correct when text sits on top of a solid, always-zone-colored surface (e.g. ZoneStrip). Do not use it for text on card backgrounds that get their color from the theme.
+
 SDK Gotchas (hard-won — read before touching these APIs)
 Vico 2.0.0-beta.3
 •	ShapeComponent constructor: use ShapeComponent(fill = Fill(color.toArgb())) — there is no color parameter. Fill wraps an ARGB int. Import: com.patrykandpatrick.vico.core.common.Fill

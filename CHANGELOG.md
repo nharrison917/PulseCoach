@@ -4,6 +4,50 @@ All notable changes to PulseCoach are documented here, organized by development 
 
 ---
 
+## Session Lifecycle Fixes
+
+### Fix A — Disconnect button disabled during active recording
+- `OutlinedButton("Disconnect")` in `LiveSessionScreen` gains `enabled = !isRecording`
+- Prevents the session-dangling bug where tapping Disconnect during a recording would
+  tear down BLE without calling `stopRecording()`, leaving the Room row with no end
+  time or final totals
+- Button renders grayed out while recording; layout is stable (button stays in place)
+- Chosen over hide-the-button so the control remains discoverable
+
+### Fix B — App close/swipe-away now finalizes the active session
+- `stopRecording()` logic extracted into a private `suspend fun finalizeSession()` —
+  single source of truth for the Room write and calibrator update
+- `onCleared()` now calls `runBlocking { finalizeSession() }` when `_isRecording` is
+  true, completing the DB UPDATE before `viewModelScope` is cancelled and BLE shuts down
+- `runBlocking` is appropriate here: `onCleared()` runs on the main thread and the
+  single-row Room UPDATE completes in ~10 ms, well within the ANR threshold
+- Hard OS kills (OOM, force-stop) are not covered by this fix — parked in TBD_plan as
+  a low-priority startup repair item
+
+---
+
+## Live Session Polish
+
+### Fix A — Zone label contrast across themes
+- `StatsCard` background now tinted with the active zone color at 20% alpha, giving a subtle zone-context wash without overwhelming the card
+- Zone label text changed from `color = zoneColor` (hardcoded yellow for Z3, invisible on light backgrounds) to `color = MaterialTheme.colorScheme.onSurface` — inherits white in Dark/Synthwave and dark in Default automatically
+- `ZoneCalculator.textColorForZone()` retained for `ZoneStrip` where text sits on a solid zone-colored box; not appropriate for card text that must adapt to the theme surface
+
+### Fix B — Calorie chart and projection text freeze after Stop
+- `LiveCalorieChart` visibility guard changed from `isRecording && actualCalorieCurve.size >= 2` to `actualCalorieCurve.size >= 2` — chart stays rendered after the user taps Stop
+- `_actualCalorieCurve`, `_projectedCalorieCurve`, `_projectionBand`, `_caloriesAtTarget`, `_pinnedProjectedCalories`, and `_firstProjectedCalories` are no longer cleared in `stopRecording()` — they remain frozen for post-session review
+- All six values are still cleared at the top of `startRecording()` so the next session starts clean
+
+### Fix C — Projection confidence band lower bound
+- `lowerCal` in `LiveCalorieChart` caption now clamped to `max(projectedLow, currentCal)` — the band can never display a lower bound below calories already burned in the current session
+
+### Fix D — Stop Reconnecting button
+- `LiveSessionViewModel.stopReconnecting()` added: cancels `reconnectJob`, clears `lastConnectedDeviceId`, calls `disconnectFromDevice()` if a device ID is held — mirrors voluntary `disconnect()` behavior without requiring the caller to supply an ID
+- `ReconnectingContent` gains an `onStopReconnecting` callback parameter and renders an `OutlinedButton("Stop Reconnecting")` below the spinner
+- Both call sites (`Disconnected` + `Connecting` states during reconnect) updated to pass `viewModel::stopReconnecting`
+
+---
+
 ## Expandable Session History Cards
 
 - Session cards collapse to a summary row (date/time, duration, total calories, session type chip) and expand on tap to reveal full detail

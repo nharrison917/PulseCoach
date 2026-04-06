@@ -154,7 +154,10 @@ fun LiveSessionScreen(
             } else {
                 when (val state = connectionState) {
                     is BleConnectionState.Disconnected ->
-                        if (isReconnecting) ReconnectingContent(isRecording = isRecording)
+                        if (isReconnecting) ReconnectingContent(
+                            isRecording = isRecording,
+                            onStopReconnecting = viewModel::stopReconnecting
+                        )
                         else DisconnectedContent(onScanClick = viewModel::startScan)
 
                     is BleConnectionState.Scanning ->
@@ -165,7 +168,10 @@ fun LiveSessionScreen(
                         )
 
                     is BleConnectionState.Connecting ->
-                        if (isReconnecting) ReconnectingContent(isRecording = isRecording)
+                        if (isReconnecting) ReconnectingContent(
+                            isRecording = isRecording,
+                            onStopReconnecting = viewModel::stopReconnecting
+                        )
                         else ConnectingContent(
                             deviceId = state.deviceId,
                             onStopConnecting = { viewModel.stopConnecting() }
@@ -349,7 +355,7 @@ private fun ConnectingContent(deviceId: String, onStopConnecting: () -> Unit) {
  * If a recording is in progress, a note reassures the user it hasn't been discarded.
  */
 @Composable
-private fun ReconnectingContent(isRecording: Boolean) {
+private fun ReconnectingContent(isRecording: Boolean, onStopReconnecting: () -> Unit) {
     Column(
         modifier = Modifier.fillMaxSize(),
         verticalArrangement = Arrangement.Center,
@@ -365,6 +371,10 @@ private fun ReconnectingContent(isRecording: Boolean) {
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
+        }
+        Spacer(Modifier.height(24.dp))
+        OutlinedButton(onClick = onStopReconnecting) {
+            Text("Stop Reconnecting")
         }
     }
 }
@@ -448,8 +458,8 @@ private fun ConnectedContent(
             )
         }
 
-        // Calorie chart — only shown while recording and once 2+ data points exist
-        if (isRecording && actualCalorieCurve.size >= 2) {
+        // Calorie chart — shown once 2+ data points exist; stays frozen after recording stops
+        if (actualCalorieCurve.size >= 2) {
             // Interpolate the projected curve at the target duration to get a single numeric label.
             // interpolateProjection returns null when the curve is empty or hasn't reached the target yet.
             val projectedFinal = projectedCalorieCurve?.let {
@@ -526,7 +536,10 @@ private fun ConnectedContent(
             }
 
             Spacer(Modifier.width(8.dp))
-            OutlinedButton(onClick = onDisconnectClick) {
+            OutlinedButton(
+                onClick = onDisconnectClick,
+                enabled = !isRecording  // guard: must stop recording before disconnecting
+            ) {
                 Text("Disconnect")
             }
         }
@@ -558,7 +571,10 @@ private fun StatsCard(
 ) {
     Card(
         modifier = modifier,
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+        // Tint the card background with the active zone color so the zone label
+        // (which uses textColorForZone — dark for Z1-3, white for Z4-5) stays readable.
+        colors = CardDefaults.cardColors(containerColor = zoneColor.copy(alpha = 0.20f))
     ) {
         Row(modifier = Modifier.fillMaxWidth().height(IntrinsicSize.Min)) {
             // Zone color accent bar
@@ -595,12 +611,12 @@ private fun StatsCard(
 
                 HorizontalDivider(modifier = Modifier.padding(vertical = 6.dp))
 
-                // Zone name in zone color — carries the zone context without a full banner
+                // Zone name — onSurface so it adapts correctly across all themes
                 Text(
                     text = zoneName,
                     style = MaterialTheme.typography.titleSmall,
                     fontWeight = FontWeight.SemiBold,
-                    color = zoneColor
+                    color = MaterialTheme.colorScheme.onSurface
                 )
             }
         }

@@ -151,7 +151,9 @@ fun LiveCalorieChart(
                 val startMinute = actualPoints.last().first.toInt()
                 val mode = if (isBlended) "Historical blend" else "Polynomial projection"
                 val upperCal = (projectedFinalCalories * (1 + projectionBand)).toInt()
-                val lowerCal = (projectedFinalCalories * (1 - projectionBand)).toInt()
+                val currentCal = actualPoints.last().second
+                // Lower bound can't be less than calories already burned.
+                val lowerCal = maxOf((projectedFinalCalories * (1 - projectionBand)), currentCal).toInt()
                 "$mode  \u2022  ${startMinute}-min session  \u2022  ~${lowerCal}\u2013${upperCal} cal at ${targetDurationMinutes}m"
             }
             else -> {

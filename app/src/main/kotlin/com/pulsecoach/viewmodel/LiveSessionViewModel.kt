@@ -33,6 +33,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeoutOrNull
 
 /**
@@ -394,6 +395,21 @@ class LiveSessionViewModel(application: Application) : AndroidViewModel(applicat
     }
 
     /**
+     * Cancels an in-progress reconnect loop and returns to the Disconnected/idle state.
+     * Used when the user taps "Stop reconnecting" from the ReconnectingContent screen.
+     */
+    fun stopReconnecting() {
+        val deviceId = lastConnectedDeviceId
+        reconnectJob?.cancel()
+        reconnectJob = null
+        lastConnectedDeviceId = null
+        _isReconnecting.value = false
+        hrJob?.cancel()
+        hrJob = null
+        if (deviceId != null) bleManager.disconnectFromDevice(deviceId)
+    }
+
+    /**
      * Updates the target session duration. Only effective before recording starts;
      * changing it mid-session does not retroactively alter the projection endpoint.
      */
@@ -442,6 +458,22 @@ class LiveSessionViewModel(application: Application) : AndroidViewModel(applicat
      * No-op if not currently recording.
      */
     fun stopRecording() {
+        if (activeSessionId == null) return
+        viewModelScope.launch {
+            finalizeSession()
+            // Calorie curve and projection values are intentionally NOT cleared here —
+            // they stay frozen on screen after Stop so the user can review their session.
+            // startRecording() clears them when the next session begins.
+        }
+    }
+
+    /**
+     * Writes final session totals to Room and updates the projection calibrator.
+     * Extracted so it can be called from both stopRecording() (via viewModelScope)
+     * and onCleared() (via runBlocking, since viewModelScope is cancelled on clear).
+     * Must only be called when activeSessionId is non-null.
+     */
+    private suspend fun finalizeSession() {
         val sessionId = activeSessionId ?: return
 
         val avgBpm = if (sampleCount > 0) totalBpmAccumulator.toFloat() / sampleCount else 0f
@@ -452,47 +484,39 @@ class LiveSessionViewModel(application: Application) : AndroidViewModel(applicat
         val actualDurationMs = sampleCount * 1000L
         val bucketMinutes = HistoricalAverager.durationBucketFor(actualDurationMs)
 
-        // Snapshot before the coroutine so the calibrator sees the same totals
+        // Snapshot before suspend calls so the calibrator sees the same totals
         // that will be written to the database.
         val snapshotCalories = cumulativeCalories
         val snapshotDurationMinutes = sampleCount / 60f
         val snapshotProjectedCurve = _projectedCalorieCurve.value
 
-        viewModelScope.launch {
-            sessionRepository.finishSession(
-                sessionId = sessionId,
-                endTimeMs = System.currentTimeMillis(),
-                totalCalories = cumulativeCalories,
-                avgBpm = avgBpm,
-                maxBpm = maxBpmSeen,
-                targetDurationMs = bucketMinutes * 60_000L,
-                // Copy the array so the repository write isn't racing with any reset
-                zoneSplits = zoneSecondsArray.copyOf()
-            )
-            // Update personal bias factor using this session's actuals vs projection.
-            // Called after finishSession() so both are written to DB before we update.
-            ProjectionCalibrator.updateFactor(
-                context = getApplication(),
-                actualCalories = snapshotCalories,
-                projectedCurve = snapshotProjectedCurve,
-                actualDurationMinutes = snapshotDurationMinutes
-            )
+        sessionRepository.finishSession(
+            sessionId = sessionId,
+            endTimeMs = System.currentTimeMillis(),
+            totalCalories = cumulativeCalories,
+            avgBpm = avgBpm,
+            maxBpm = maxBpmSeen,
+            targetDurationMs = bucketMinutes * 60_000L,
+            // Copy the array so the repository write isn't racing with any reset
+            zoneSplits = zoneSecondsArray.copyOf()
+        )
+        // Update personal bias factor using this session's actuals vs projection.
+        // Called after finishSession() so both are written to DB before we update.
+        ProjectionCalibrator.updateFactor(
+            context = getApplication(),
+            actualCalories = snapshotCalories,
+            projectedCurve = snapshotProjectedCurve,
+            actualDurationMinutes = snapshotDurationMinutes
+        )
 
-            activeSessionId = null
-            _isRecording.value = false
-            RecordingStateHolder.isRecording.value = false
-            _currentCalPerMinute.value = 0f
-            _sessionTotalCalories.value = 0f
-            _sessionAvgBpm.value = 0f
-            _sessionAvgCalPerMinute.value = 0f
-            _sessionElapsedSeconds.value = 0
-            _actualCalorieCurve.value = emptyList()
-            _projectedCalorieCurve.value = null
-            _projectionBand.value = null
-            _caloriesAtTarget.value = null
-            _pinnedProjectedCalories.value = null
-            _firstProjectedCalories.value = null
-        }
+        activeSessionId = null
+        _isRecording.value = false
+        RecordingStateHolder.isRecording.value = false
+        _currentCalPerMinute.value = 0f
+        _sessionTotalCalories.value = 0f
+        _sessionAvgBpm.value = 0f
+        _sessionAvgCalPerMinute.value = 0f
+        _sessionElapsedSeconds.value = 0
     }
 
     private fun startHrStream(deviceId: String) {
@@ -622,6 +646,12 @@ class LiveSessionViewModel(application: Application) : AndroidViewModel(applicat
     // leaving the BLE radio resource open after the screen is gone.
     override fun onCleared() {
         super.onCleared()
+        // viewModelScope is cancelled immediately after onCleared() returns, so any
+        // coroutine launched here would be killed before it runs. runBlocking keeps the
+        // main thread alive long enough for the Room UPDATE to complete (~10 ms).
+        if (_isRecording.value) {
+            runBlocking { finalizeSession() }
+        }
         RecordingStateHolder.isRecording.value = false
         reconnectJob?.cancel()
         bleManager.shutdown()
