@@ -1,4 +1,4 @@
-# Library Exports (generated 2026-04-03)
+# Library Exports (generated 2026-04-06)
 # fn=function, class=class
 
 ## app/src/main/kotlin/com/pulsecoach/
@@ -98,6 +98,10 @@ SessionRepository.kt
   fn seedSyntheticSessions
   fn seedRealisticSessions
   class SessionRepository
+ThemeRepository.kt
+  class ThemeRepository
+    fn getTheme
+    fn saveTheme
 UserProfileRepository.kt
   class UserProfileRepository
     fn isProfileComplete
@@ -124,6 +128,10 @@ SessionHistoryScreen.kt
 SettingsScreen.kt
   fn SettingsScreen
 
+## app/src/main/kotlin/com/pulsecoach/ui/theme/
+AppTheme.kt
+  class AppTheme
+
 ## app/src/main/kotlin/com/pulsecoach/util/
 CalorieCalculator.kt
   class CalorieCalculator
@@ -144,8 +152,6 @@ PolynomialProjector.kt
     fn project
     fn fitQuadratic
     fn gaussianElimination
-RecordingStateHolder.kt
-  object RecordingStateHolder
 ProjectionCalibrator.kt
   class ProjectionCalibrator
     fn updateFactor
@@ -156,6 +162,8 @@ ProjectionCalibrator.kt
     fn computeSigma
     fn seedCalibrationRatios
     fn interpolateProjection
+RecordingStateHolder.kt
+  class RecordingStateHolder
 SyntheticSessionGenerator.kt
   class SyntheticSessionGenerator
     fn generate
@@ -183,12 +191,12 @@ LiveSessionViewModel.kt
     fn startScan
     fn stopScan
     fn connectToDevice
+    fn stopConnecting
     fn disconnect
+    fn stopReconnecting
     fn setTargetDuration
     fn startRecording
     fn stopRecording
-    fn stopReconnecting
-    fn finalizeSession
     fn onCleared
 ProfileViewModel.kt
   class ProfileViewModel
@@ -199,7 +207,6 @@ ProfileViewModel.kt
     fn onMaxHrChange
     fn setUseLbs
     fn saveProfile
-    val isRecording
 SessionHistoryViewModel.kt
   class SeedingState
   class Idle
@@ -231,4 +238,3 @@ SettingsViewModel.kt
     fn saveZoneConfig
     fn resetToDefaults
     fn karvonenZonesOrNull
-    val isRecording
