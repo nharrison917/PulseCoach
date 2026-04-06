@@ -187,6 +187,8 @@ LiveSessionViewModel.kt
     fn setTargetDuration
     fn startRecording
     fn stopRecording
+    fn stopReconnecting
+    fn finalizeSession
     fn onCleared
 ProfileViewModel.kt
   class ProfileViewModel
