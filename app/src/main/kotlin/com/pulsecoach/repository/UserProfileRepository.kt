@@ -22,6 +22,7 @@ class UserProfileRepository(context: Context) {
         private const val KEY_SEX = "profile_sex"
         private const val KEY_RESTING_HR = "profile_resting_hr"
         private const val KEY_MAX_HR = "profile_max_hr"
+        private const val KEY_USE_LBS = "profile_use_lbs"
         const val KEY_COMPLETE = "profile_complete"
     }
 
@@ -43,7 +44,8 @@ class UserProfileRepository(context: Context) {
                 prefs.getString(KEY_SEX, BiologicalSex.MALE.name)!!
             ),
             restingHr = restingHr,
-            maxHr = maxHr
+            maxHr = maxHr,
+            useLbs = prefs.getBoolean(KEY_USE_LBS, false)
         )
     }
 
@@ -57,6 +59,7 @@ class UserProfileRepository(context: Context) {
             .putInt(KEY_AGE, profile.age)
             .putFloat(KEY_WEIGHT_KG, profile.weightKg)
             .putString(KEY_SEX, profile.sex.name)
+            .putBoolean(KEY_USE_LBS, profile.useLbs)
             .putBoolean(KEY_COMPLETE, true)
         // Store -1 when null so we can distinguish "not set" from 0
         if (profile.restingHr != null) editor.putInt(KEY_RESTING_HR, profile.restingHr)

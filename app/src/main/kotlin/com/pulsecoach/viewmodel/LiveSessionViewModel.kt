@@ -19,6 +19,7 @@ import com.pulsecoach.util.CalorieCalculator
 import com.pulsecoach.util.HistoricalAverager
 import com.pulsecoach.util.PolynomialProjector
 import com.pulsecoach.util.ProjectionCalibrator
+import com.pulsecoach.util.RecordingStateHolder
 import com.pulsecoach.util.ZoneCalculator
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
@@ -432,6 +433,7 @@ class LiveSessionViewModel(application: Application) : AndroidViewModel(applicat
             _pinnedProjectedCalories.value = null
             _firstProjectedCalories.value = null
             _isRecording.value = true
+            RecordingStateHolder.isRecording.value = true
         }
     }
 
@@ -478,6 +480,7 @@ class LiveSessionViewModel(application: Application) : AndroidViewModel(applicat
 
             activeSessionId = null
             _isRecording.value = false
+            RecordingStateHolder.isRecording.value = false
             _currentCalPerMinute.value = 0f
             _sessionTotalCalories.value = 0f
             _sessionAvgBpm.value = 0f
@@ -619,6 +622,7 @@ class LiveSessionViewModel(application: Application) : AndroidViewModel(applicat
     // leaving the BLE radio resource open after the screen is gone.
     override fun onCleared() {
         super.onCleared()
+        RecordingStateHolder.isRecording.value = false
         reconnectJob?.cancel()
         bleManager.shutdown()
     }

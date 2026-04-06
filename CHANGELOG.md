@@ -4,6 +4,23 @@ All notable changes to PulseCoach are documented here, organized by development 
 
 ---
 
+## Profile Settings Improvements
+
+### Feature A — Weight unit toggle (lbs / kg)
+- `UserProfile` gains `val useLbs: Boolean = false` — display preference only; `weightKg` is always stored and used internally as kg; `CalorieCalculator` unchanged
+- `UserProfileRepository` persists `useLbs` via `profile_use_lbs` boolean key in SharedPreferences (`user_profile`)
+- `ProfileViewModel.setUseLbs(value)` converts the draft weight string on toggle (kg → lbs: `× 2.20462`; lbs → kg: `÷ 2.20462`); `init` converts kg → lbs for display if `useLbs=true`; `saveProfile()` always converts back to kg before writing
+- `ProfileSetupScreen` adds a kg / lbs `RadioButton` row above the weight field; suffix and validation error message update with the selected unit (valid range: 30–250 kg / 66–551 lbs)
+
+### Feature B — Lock profile and settings during active recording
+- New `RecordingStateHolder` (`util/`) — Kotlin `object` with a single `MutableStateFlow<Boolean>`; no-DI singleton appropriate for an offline solo app
+- `LiveSessionViewModel` sets the holder `true` at the end of `startRecording()`, `false` in `stopRecording()` and `onCleared()` (safety reset on ViewModel teardown)
+- `SettingsViewModel` and `ProfileViewModel` each expose `val isRecording: StateFlow<Boolean>` backed by the holder
+- `SettingsScreen`: shows a red lock banner when recording; disables Karvonen checkbox, all four zone sliders (`ZoneSlider` gains an `enabled` parameter), and Reset / Save buttons
+- `ProfileSetupScreen`: same pattern — red lock banner + all TextFields, RadioButtons, and Save button disabled while recording
+
+---
+
 ## Live Session Improvements
 
 ### Feature A — Calorie chart: confidence band → endpoint annotation

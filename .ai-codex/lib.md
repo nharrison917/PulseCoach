@@ -144,6 +144,8 @@ PolynomialProjector.kt
     fn project
     fn fitQuadratic
     fn gaussianElimination
+RecordingStateHolder.kt
+  object RecordingStateHolder
 ProjectionCalibrator.kt
   class ProjectionCalibrator
     fn updateFactor
@@ -193,7 +195,9 @@ ProfileViewModel.kt
     fn onSexChange
     fn onRestingHrChange
     fn onMaxHrChange
+    fn setUseLbs
     fn saveProfile
+    val isRecording
 SessionHistoryViewModel.kt
   class SeedingState
   class Idle
@@ -225,3 +229,4 @@ SettingsViewModel.kt
     fn saveZoneConfig
     fn resetToDefaults
     fn karvonenZonesOrNull
+    val isRecording

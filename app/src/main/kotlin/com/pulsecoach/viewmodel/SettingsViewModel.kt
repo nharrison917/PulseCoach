@@ -7,9 +7,11 @@ import com.pulsecoach.data.PulseCoachDatabase
 import com.pulsecoach.model.ZoneConfig
 import com.pulsecoach.repository.UserProfileRepository
 import com.pulsecoach.repository.ZoneConfigRepository
+import com.pulsecoach.util.RecordingStateHolder
 import com.pulsecoach.util.ZoneCalculator
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
@@ -54,6 +56,9 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
             repository.saveZoneConfig(ZoneConfig.defaults)
         }
     }
+
+    /** True while a live session is recording — zone sliders and Save are locked. */
+    val isRecording: StateFlow<Boolean> = RecordingStateHolder.isRecording.asStateFlow()
 
     /**
      * Returns true if the user's profile has both restingHr and maxHr set.

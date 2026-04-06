@@ -10,5 +10,7 @@ data class UserProfile(
     val sex: BiologicalSex,
     // Optional — only needed for Karvonen zone auto-calculation
     val restingHr: Int? = null,
-    val maxHr: Int? = null
+    val maxHr: Int? = null,
+    // Display preference only — weight is always stored internally as kg
+    val useLbs: Boolean = false
 )

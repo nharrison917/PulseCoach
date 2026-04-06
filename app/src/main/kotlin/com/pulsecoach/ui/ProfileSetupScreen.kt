@@ -63,6 +63,8 @@ fun ProfileSetupScreen(
     val sex by viewModel.sex.collectAsStateWithLifecycle()
     val restingHr by viewModel.restingHr.collectAsStateWithLifecycle()
     val maxHr by viewModel.maxHr.collectAsStateWithLifecycle()
+    val useLbs by viewModel.useLbs.collectAsStateWithLifecycle()
+    val isRecording by viewModel.isRecording.collectAsStateWithLifecycle()
 
     // Only show the validation error message after the user first tries to save
     var showError by remember { mutableStateOf(false) }
@@ -92,6 +94,15 @@ fun ProfileSetupScreen(
         ) {
             Spacer(Modifier.height(8.dp))
 
+            // Lock notice — shown when a live session is active
+            if (isRecording) {
+                Text(
+                    "A session is in progress — profile editing is locked",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.error
+                )
+            }
+
             Text(
                 "PulseCoach uses your age, weight, and biological sex to calculate " +
                     "calories per minute using the Keytel (2005) formula. " +
@@ -108,6 +119,7 @@ fun ProfileSetupScreen(
                 suffix = { Text("years") },
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                 singleLine = true,
+                enabled = !isRecording,
                 modifier = Modifier.fillMaxWidth(),
                 isError = showError && age.toIntOrNull()?.let { it !in 10..100 } != false,
                 supportingText = if (showError && age.toIntOrNull()?.let { it !in 10..100 } != false) {
@@ -115,7 +127,40 @@ fun ProfileSetupScreen(
                 } else null
             )
 
-            // Weight input — allows one decimal point, range 30–250 kg
+            // Weight unit toggle — placed above the weight field
+            Column {
+                Text(
+                    "Weight unit",
+                    style = MaterialTheme.typography.bodyLarge,
+                    fontWeight = FontWeight.Medium
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        RadioButton(
+                            selected = !useLbs,
+                            onClick = { viewModel.setUseLbs(false) },
+                            enabled = !isRecording
+                        )
+                        Text("kg", modifier = Modifier.padding(start = 4.dp))
+                    }
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        RadioButton(
+                            selected = useLbs,
+                            onClick = { viewModel.setUseLbs(true) },
+                            enabled = !isRecording
+                        )
+                        Text("lbs", modifier = Modifier.padding(start = 4.dp))
+                    }
+                }
+            }
+
+            // Weight input — range 30–250 kg (66–551 lbs)
+            val weightUnit = if (useLbs) "lbs" else "kg"
+            val weightRange = if (useLbs) "66 to 551 lbs" else "30 to 250 kg"
+            val weightValid = weightKg.toFloatOrNull()?.let { display ->
+                val kg = if (useLbs) display / 2.20462f else display
+                kg in 30f..250f
+            } != false
             OutlinedTextField(
                 value = weightKg,
                 onValueChange = { input ->
@@ -125,13 +170,14 @@ fun ProfileSetupScreen(
                     if (dotCount <= 1) viewModel.onWeightChange(cleaned)
                 },
                 label = { Text("Weight") },
-                suffix = { Text("kg") },
+                suffix = { Text(weightUnit) },
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                 singleLine = true,
+                enabled = !isRecording,
                 modifier = Modifier.fillMaxWidth(),
-                isError = showError && weightKg.toFloatOrNull()?.let { it !in 30f..250f } != false,
-                supportingText = if (showError && weightKg.toFloatOrNull()?.let { it !in 30f..250f } != false) {
-                    { Text("Enter a value between 30 and 250") }
+                isError = showError && !weightValid,
+                supportingText = if (showError && !weightValid) {
+                    { Text("Enter a value between $weightRange") }
                 } else null
             )
 
@@ -153,7 +199,8 @@ fun ProfileSetupScreen(
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             RadioButton(
                                 selected = sex == option,
-                                onClick = { viewModel.onSexChange(option) }
+                                onClick = { viewModel.onSexChange(option) },
+                                enabled = !isRecording
                             )
                             Text(
                                 // "MALE" -> "Male"
@@ -190,6 +237,7 @@ fun ProfileSetupScreen(
                         suffix = { Text("bpm") },
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                         singleLine = true,
+                        enabled = !isRecording,
                         modifier = Modifier.weight(1f)
                     )
                     OutlinedTextField(
@@ -199,6 +247,7 @@ fun ProfileSetupScreen(
                         suffix = { Text("bpm") },
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                         singleLine = true,
+                        enabled = !isRecording,
                         modifier = Modifier.weight(1f)
                     )
                 }
@@ -212,6 +261,7 @@ fun ProfileSetupScreen(
                         showError = true
                     }
                 },
+                enabled = !isRecording,
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Text("Save Profile")
