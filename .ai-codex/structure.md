@@ -19,6 +19,7 @@ app/
   proguard-rules.pro  R8/ProGuard keep rules
 gradle/
   wrapper/
+screenshots/
 .gitignore  Git ignore rules
 build.gradle.kts  Module build config and dependencies
 CLAUDE.md  Instructions for Claude Code

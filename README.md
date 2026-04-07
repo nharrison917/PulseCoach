@@ -17,6 +17,8 @@ in a single tool: live and average calorie rates, a projection of where I'd end 
 current effort, and a model that learns from my own sessions rather than population averages. 
 This is that tool — and also a learning project in Android development and applied analytics.*
 
+![Live session screen](screenshots/Screenshot_1.png)
+
 ---
 
 ## What It Does
@@ -103,13 +105,15 @@ uncertainty compounds over the forecast horizon.
 
 The full analytical rationale and trade-off analysis is in [`ANALYSIS.md`](ANALYSIS.md).
 
+![Calorie projection chart](screenshots/Screenshot_3.png)
+
 ---
 
 ## Features
 
 ### Live Session Screen
 - Zone color banner (5 configurable zones, Z1–Z5)
-- Scrolling 60-second HR chart
+- Scrolling 5-minute HR chart
 - Live cal/min display
 - Cumulative calorie chart with projection + confidence band (after 10 min)
 - Target duration picker (20 / 30 / 45 / 60 min)
@@ -130,9 +134,13 @@ The full analytical rationale and trade-off analysis is in [`ANALYSIS.md`](ANALY
 - Multi-select delete with confirmation
 - CSV export via MediaStore API (Android 10+)
 
+![Session history screen](screenshots/Screenshot_5.png)
+
 ### Settings & Profile
 - Per-zone threshold sliders (persisted to Room)
 - User profile (age, weight, sex) — persisted to SharedPreferences; used by Keytel formula
+
+![Zone settings screen](screenshots/Screenshot_2.png)
 
 ---
 
@@ -223,6 +231,9 @@ A **synthetic session seeder** (debug only) generates parameterized HR curves
 (logistic warm-up → Gaussian steady-state → exponential cooldown) and writes them
 to Room. Synthetic sessions are tagged "SYN" in the history list. Useful for
 populating the historical baseline without running real workouts.
+
+![Projection accuracy by observation window](screenshots/Screenshot_4.png)
+![Typed blend accuracy breakdown](screenshots/Screenshot_6.png)
 
 ---
 

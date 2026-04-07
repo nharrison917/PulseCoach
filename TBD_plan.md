@@ -66,3 +66,53 @@ setting, rather than the hardcoded 5-minute window.
 
 **Main fiddly part:** x-axis label spacing — `HorizontalAxis.ItemPlacer.aligned(spacing)`
 must be tuned per window size (e.g. 30s / 60s / 120s / 180s for 1/5/10/15 min windows).
+
+---
+
+## Adaptive ensemble weights (Level 3a)
+
+The current 0.6 historical / 0.4 polynomial blend uses fixed weights chosen by
+judgment. The Bates & Granger (1969) optimal formula derives weights from relative
+forecast error variances: `w_poly = σ_hist² / (σ_poly² + σ_hist²)`. This would
+make the blend personalized — users with inconsistent history would lean more on
+the polynomial; users with stable history would lean more on the baseline.
+
+`EvaluationViewModel` already computes polynomial-only and blended errors separately,
+so the variance estimates are achievable without new infrastructure.
+
+**Proposed:**
+- After each session, record polynomial error and historical error separately
+  alongside the existing calibration ratio in SharedPreferences
+- Accumulate running variances for each; compute weights as the Bates & Granger ratio
+- Apply the same N ≥ 10 gate before activating (default to 0.6/0.4 until then)
+
+**Scope:** `ProjectionCalibrator` (store two extra running variances),
+`LiveSessionViewModel` (pass derived weights into `HistoricalAverager`),
+SharedPreferences keys under `pulse_coach_calibration`.
+
+**Prerequisite:** enough session history to make variance estimates stable. Gate
+behind the same N threshold used by blending. See `ANALYSIS.md` Level 3a.
+
+---
+
+## Exponential decay weighting for stale sessions (Level 6)
+
+The bias correction factor and historical baseline both use equal-weight cumulative
+means. If training style shifts substantially (e.g. base-building → race-pace work),
+old sessions distort the correction factor and historical curve.
+
+**Proposed:** weight sessions by `λ^(n−i)` where i is chronological index and
+λ ∈ (0, 1), so recent sessions have more influence. Two application points:
+
+- `ProjectionCalibrator`: replace the cumulative mean update with a
+  decay-weighted mean over the stored ratio list
+- `HistoricalAverager`: weight each session's per-minute contribution by its
+  recency when computing the baseline curve (requires session timestamps from Room,
+  which are already stored as `startTimeMs`)
+
+**Blocker:** λ is a new hyperparameter with no obvious default. Needs the evaluation
+screen extended to compare decay rates before any value can be justified.
+
+**Scope:** `ProjectionCalibrator`, `HistoricalAverager`, SharedPreferences (store λ
+or derive it from a user-facing "memory window" setting in sessions). See
+`ANALYSIS.md` Level 6.

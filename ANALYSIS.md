@@ -78,7 +78,7 @@ This is **forecast combination** (model ensembling). Bates & Granger (1969) esta
 - The **polynomial** is reactive to the current session's real-time signal but unstable early (few data points → high variance fit)
 - The **historical baseline** is stable but ignores the current session's actual trajectory
 
-The 0.6/0.4 weighting toward history reflects that the polynomial's variance early in a session is typically larger than the baseline's bias. The weights are exposed as a tunable parameter in debug builds — exactly how a hyperparameter would be treated during model development.
+The 0.6/0.4 weighting toward history reflects the expectation that the polynomial's variance early in a session exceeds the baseline's bias — the historical curve is stable from minute one, while the polynomial is only fit after 10 data points and remains noisy until roughly minute 15. The weights were set by informed judgment rather than empirical calibration. Bates & Granger (1969) show that optimal weights can be derived from relative forecast error variances, but applying this requires holdout data from many sessions — a cold-start problem for a new user. Equal weighting (0.5/0.5) has also been shown to be surprisingly competitive in practice (Timmermann, 2006) because estimated optimal weights carry their own estimation error. The in-app evaluation screen provides the data to test alternatives empirically; fixing the weights at 0.6/0.4 is an acknowledged limitation. The weights are exposed as a tunable parameter in debug builds — exactly how a hyperparameter would be treated during model development.
 
 ---
 
@@ -166,6 +166,8 @@ An in-app evaluation screen (debug builds only) tests projection accuracy using 
 - Project to the session's actual end time
 - Compare projected total calories to the actual recorded total
 
+This is a **walk-forward (time-series) cross-validation** approach, also called out-of-sample sequential holdout. Standard k-fold cross-validation is inappropriate here because it would allow future sessions to inform the historical baseline for past sessions — the model has no access to future data at runtime, so evaluation must respect temporal ordering.
+
 Accuracy metrics reported:
 - **MAE** (Mean Absolute Error) — average absolute calorie deviation
 - **MAPE** (Mean Absolute Percentage Error) — scale-invariant accuracy measure
@@ -176,8 +178,13 @@ Results are computed separately for polynomial-only vs. blended projections, and
 
 ## Projection Quality Levels — Trade-off Analysis
 
-### Level 1 — Current Baseline
-Degree-2 polynomial OLS + historical mean blend. Already implemented. Directionally correct after ~15 minutes of data. Core limitation: the quadratic shape is rigid and cannot represent the warm-up spike → plateau structure of real sessions.
+### Level 1 — Polynomial OLS + Historical Blend (Current Baseline) ✅ IMPLEMENTED
+**Requires:** Degree-2 polynomial fit on 10-minute calorie series (Gaussian elimination on 3×3 normal equations). Weighted blend with per-minute historical mean (0.4/0.6). Monotonicity guard with linear fallback.
+**Effort:** Already implemented.
+**Complexity:** Low–medium. The polynomial solver is non-trivial but bounded; the blend is arithmetic.
+**Pros:** Reactive to the current session's real-time trajectory (polynomial) while anchored by the user's own history (baseline). No external libraries. Fully interpretable.
+**Cons:** Quadratic shape is rigid — cannot represent the warm-up spike → plateau structure of real sessions. Blend weights (0.6/0.4) were set by judgment, not empirical calibration (see Layer 3 note and Level 3a below).
+**Verdict:** Directionally correct after ~15 minutes. The shape limitation motivates Level 2; the fixed weights motivate Level 3a.
 
 ---
 
@@ -201,6 +208,16 @@ Degree-2 polynomial OLS + historical mean blend. Already implemented. Directiona
 
 ---
 
+### Level 3a — Adaptive Ensemble Weights
+**Requires:** Rather than fixed 0.6/0.4 weights, derive blend weights from the relative holdout error variances of the two component forecasts. After each session, compute polynomial error and historical error separately, accumulate their variances, and update weights as `w_poly = σ_hist² / (σ_poly² + σ_hist²)` per the Bates & Granger optimal formula.
+**Effort:** Low–medium. `EvaluationViewModel` already separates polynomial-only from blended accuracy. Storing two running error variances in SharedPreferences alongside the existing calibration factor is straightforward.
+**Complexity:** Low. The update is a ratio of two running variances — no more complex than the existing bias correction.
+**Pros:** Weights become personalized — for a user whose historical baseline is highly variable (inconsistent training), the polynomial would naturally receive more weight. Directly grounded in the Bates & Granger theoretical framework already cited. The evaluation infrastructure to validate this already exists in-app.
+**Cons:** Requires sufficient holdout history before variance estimates are stable (same N ≥ 10 gate applies). Would default to 0.6/0.4 until enough sessions accumulate. Adds two more scalars to SharedPreferences.
+**Verdict:** High analytical value, low implementation risk. The most natural next step after the current baseline. Would convert the fixed-weight heuristic into a data-driven parameter.
+
+---
+
 ### Level 4 — Personal Bias Correction ✅ IMPLEMENTED
 **Requires:** After each session, compute `ratio = actual_calories / projected_calories_at_actual_duration`. Maintain a rolling mean of past ratios as a personal correction factor stored in SharedPreferences. Multiply outgoing projections by this factor at compute time.
 **Effort:** Low — 2–4 hours. EvaluationViewModel already computes the residuals; this aggregates them into a scalar and applies it.
@@ -221,10 +238,35 @@ Degree-2 polynomial OLS + historical mean blend. Already implemented. Directiona
 
 ---
 
-### Level 6 — Kalman Filter / State Space Model
+### Level 6 — Exponential Decay Weighting for Stale Sessions
+**Requires:** Replace the equal-weight cumulative mean in `ProjectionCalibrator` with exponentially decayed weighting: `weight(i) = λ^(n−i)` where λ ∈ (0, 1) and i indexes sessions chronologically, so recent sessions have more influence. Apply analogously to the `HistoricalAverager` per-minute means.
+**Effort:** Low–medium. The rolling mean update formula in `ProjectionCalibrator` changes; `HistoricalAverager` would need session timestamps from Room to compute weights.
+**Complexity:** Low math, medium implementation.
+**Pros:** Addresses the most common real-world failure mode of the bias correction: training style shift. A user who transitions from base-building to race-pace work accumulates a stale correction factor that systematically mis-projects the new regime. Decay causes old sessions to fade from influence within a configurable window.
+**Cons:** Introduces λ as a new hyperparameter that must be chosen. λ too small → past data discarded too quickly, high variance. λ too large → equivalent to equal weighting. No in-app mechanism currently exists to tune or evaluate λ.
+**Verdict:** High practical value for users whose training evolves. Parked until the evaluation screen can be extended to test decay rates empirically. Natural follow-on to Level 4.
+
+---
+
+### Level 7 — Kalman Filter / State Space Model
 **Requires:** Formulate HR and calories as latent states with transition and observation models. Specify process noise (Q) and observation noise (R) matrices. Implement predict/update loop in real time on the 1Hz sensor stream.
 **Effort:** High — 1–2 weeks minimum. High risk of subtle errors in matrix formulation.
 **Complexity:** High. Requires probabilistic reasoning, linear algebra, and careful numerical implementation.
 **Pros:** Principled online learning; updates continuously with every sensor reading. Gold standard for real-time sensor fusion.
 **Cons:** Noise matrix tuning requires empirical calibration data not available here. Massive complexity increase for marginal gain in a 60-minute, 1Hz session context. Very easy to implement incorrectly.
 **Verdict:** Not recommended. Better left as a "future work" bullet.
+
+---
+
+## Trade-off Summary
+
+| Level | Approach | Status | Effort | Verdict |
+|-------|----------|--------|--------|---------|
+| 1 | Polynomial OLS + historical blend | Implemented | — | Baseline; correct after ~15 min |
+| 2 | Spline / piecewise basis | Not implemented | Medium | Nice-to-have; marginal gain over blend |
+| 3 | ETS / exponential smoothing | Not implemented | Medium | Credible; requires data pipeline restructure |
+| 3a | Adaptive ensemble weights | Not implemented | Low–medium | Best next step; data-driven weight selection |
+| 4 | Personal bias correction | Implemented | Low | Highest ROI; addresses individual-level bias |
+| 5 | Prediction intervals | Implemented | Medium | Strong analytical signal; proportional band |
+| 6 | Exponential decay (stale sessions) | Parked | Medium | High practical value; needs λ tuning infrastructure |
+| 7 | Kalman filter / state space | Not recommended | High | Principled but unjustified complexity here |
